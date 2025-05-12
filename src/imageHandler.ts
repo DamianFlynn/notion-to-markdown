@@ -114,8 +114,8 @@ export async function downloadImage(imageUrl: string, filePath: string, contentI
     const writer = fs.createWriteStream(filePath);
     response.data.pipe(writer);
 
-    await new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
+    await new Promise<void>((resolve, reject) => {
+      writer.on('finish', () => resolve());
       writer.on('error', reject);
     });
     

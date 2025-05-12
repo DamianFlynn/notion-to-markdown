@@ -1,4 +1,4 @@
-import markdownTable from "markdown-table";
+import { markdownTable } from "markdown-table";
 import {
   AudioBlockObjectResponse,
   EquationRichTextItemResponse,
@@ -210,6 +210,11 @@ async function mentionRichText(
     }
     case "database": {
       console.warn("[Warn] Database mention is not supported");
+      return "";
+    }
+    default: {
+      // Add a catch-all for any future mention types
+      console.warn(`[Warn] Unknown mention type: ${(mention as any).type}`);
       return "";
     }
   }
