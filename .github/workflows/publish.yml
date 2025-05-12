@@ -31,19 +31,46 @@ jobs:
         with:
           fetch-depth: 0  # Fetch all history for changelog generation
 
-      # Generate changelog
+      # Generate simple changelog based on git log
       - name: Generate Changelog
         id: changelog
-        uses: metcalfc/changelog-generator@v4.0.1
-        with:
-          myToken: ${{ secrets.GITHUB_TOKEN }}
+        if: github.event_name != 'pull_request'
+        run: |
+          # If it's a tag, get changes since previous tag
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # Get the current tag
+            CURRENT_TAG=${GITHUB_REF#refs/tags/}
+            
+            # Find the previous tag
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 $CURRENT_TAG^ 2>/dev/null || echo "")
+            
+            if [ -z "$PREVIOUS_TAG" ]; then
+              # If no previous tag, get all commits
+              CHANGELOG=$(git log --pretty=format:"* %s (%h)" $CURRENT_TAG)
+            else
+              # Get commits between tags
+              CHANGELOG=$(git log --pretty=format:"* %s (%h)" $PREVIOUS_TAG..$CURRENT_TAG)
+            fi
+          else
+            # For non-tag pushes, get last 10 commits
+            CHANGELOG=$(git log -10 --pretty=format:"* %s (%h)")
+          fi
+          
+          # Escape newlines for GitHub Actions output
+          CHANGELOG="${CHANGELOG//'%'/'%25'}"
+          CHANGELOG="${CHANGELOG//$'\n'/'%0A'}"
+          CHANGELOG="${CHANGELOG//$'\r'/'%0D'}"
+          
+          echo "changelog=$CHANGELOG" >> $GITHUB_OUTPUT
           
       # Save changelog to file
       - name: Create Changelog File
         if: github.event_name != 'pull_request'
         run: |
-          echo "${{ steps.changelog.outputs.changelog }}" > CHANGELOG.md
-          echo "Generated changelog for version ${{ steps.version.outputs.date_version || 'latest' }}"
+          echo "# Changelog" > CHANGELOG.md
+          echo "## Changes in this release" >> CHANGELOG.md
+          echo "${{ steps.changelog.outputs.changelog }}" | sed 's/%0A/\n/g' >> CHANGELOG.md
+          echo "Generated changelog"
           cat CHANGELOG.md
 
       # Install the cosign tool except on PR
@@ -80,7 +107,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # this is a simple way of using date and time to do versioning.
-      - name: Modify scripts and get version
+      - name: Generate version
         id: version
         run: |
           output=$(date -u '+%Y%m%d%H%M%S')
@@ -124,14 +151,15 @@ jobs:
         if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          body: ${{ steps.changelog.outputs.changelog }}
+          body_path: CHANGELOG.md
           files: |
             CHANGELOG.md
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Optionally, update README with new version info
-      - name: Update README with new version
+      # Optionally, update VERSION file with new build info
+      - name: Update VERSION with new build info
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
-          echo "Latest build: ${{steps.version.outputs.date_version}}" >> VERSION.md
-          echo "Build timestamp: $(date -u)" >> VERSION.md
+          mkdir -p .github
+          echo "Latest build: ${{steps.version.outputs.date_version}}" > .github/VERSION.md
+          echo "Build timestamp: $(date -u)" >> .github/VERSION.md
