@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+resources
+.hugo_build.lock
+public
+**/.DS_Store
+content
+static/images/*
+!static/images/.gitkeep

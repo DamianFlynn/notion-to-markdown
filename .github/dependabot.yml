@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    ignore:
+      # Ignore patch updates for dev dependencies
+      - dependency-name: "@types/*"
+        update-types: ["version-update:semver-patch"]
