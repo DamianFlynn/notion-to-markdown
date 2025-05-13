@@ -1,130 +1,141 @@
-import fs from "fs-extra";
-import path from "path";
-import frontMatter from "front-matter";
+import fs from 'fs-extra';
+import path from 'path';
+import frontMatter from 'front-matter';
+import { ContentFile } from './markdown/types';
 
-export interface ContentFile {
-  filepath: string;
-  content: string;
-  metadata: any;
-  expiry_time: string | null;
+/**
+ * Define the structure for front matter attributes we expect to find
+ */
+interface FrontMatterAttributes {
+  id?: string;
+  NOTION_METADATA?: {
+    id?: string;
+    [key: string]: any;
+  };
+  last_edited_time?: string;
+  lastmod?: string;
+  EXPIRY_TIME?: string;
+  UPDATE_TIME?: string;
+  [key: string]: any; // Allow for other properties
 }
 
 /**
- * Extracts Notion page ID from filename
+ * Get a content file by filepath
  */
-export function extractNotionIdFromFilename(filename: string): string | null {
-  // Looking for pattern like "page-name-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX.md"
-  const match = filename.match(/[-_]([a-f0-9]{32})\.md$/i);
-  if (match && match[1]) {
-    // Insert hyphens to format as a proper Notion ID
-    const id = match[1];
-    return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`;
-  }
-  return null;
-}
-
-export function getContentFile(filepath: string): ContentFile | null {
+export function getContentFileByPath(filepath: string): ContentFile | null {
   try {
-    if (!fs.existsSync(filepath)) return null;
-    
-    const content = fs.readFileSync(filepath, "utf-8");
-    const parsed = frontMatter(content);
-    const metadata = parsed.attributes as any;
-    
-    // Check for ID in different locations with fallbacks
-    if (!metadata.id) {
-      // First check NOTION_METADATA
-      if (metadata.NOTION_METADATA && metadata.NOTION_METADATA.id) {
-        metadata.id = metadata.NOTION_METADATA.id;
-      } else {
-        // Try to extract from filename
-        const extractedId = extractNotionIdFromFilename(path.basename(filepath));
-        if (extractedId) {
-          metadata.id = extractedId;
-          console.debug(`[Debug] Extracted ID ${extractedId} from filename ${path.basename(filepath)}`);
-        }
-      }
-    }
-    
+    const content = fs.readFileSync(filepath, 'utf-8');
+    const parsed = frontMatter<FrontMatterAttributes>(content);
+
     return {
+      filename: path.basename(filepath),
       filepath,
-      content,
-      metadata,
-      expiry_time: metadata.EXPIRY_TIME || null,
+      metadata: parsed.attributes,
+      content: content,
+      expiry_time: parsed.attributes.EXPIRY_TIME || null,
+      last_updated: parsed.attributes.UPDATE_TIME || undefined
     };
-  } catch (e) {
-    console.warn(`[Warning] Failed to parse file ${filepath}: ${e}`);
+  } catch (error) {
+    console.warn(`[Warning] Failed to parse content file ${filepath}: ${error}`);
     return null;
   }
 }
 
-export function getAllContentFiles(basePath: string): ContentFile[] {
-  const results: ContentFile[] = [];
+/**
+ * Get all markdown files in the content directory
+ * 
+ * @param contentDir - Directory to scan for markdown files
+ * @returns Array of content files with parsed front matter
+ */
+export function getAllContentFiles(contentDir: string = 'content'): ContentFile[] {
+  const contentFiles: ContentFile[] = [];
   
-  function scanDirectory(dirPath: string) {
-    if (!fs.existsSync(dirPath)) {
-      return;
-    }
+  if (!fs.existsSync(contentDir)) {
+    return contentFiles;
+  }
+  
+  // Function to recursively scan directories
+  function scanDirectory(dir: string) {
+    const files = fs.readdirSync(dir);
     
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    
-    for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name);
+    files.forEach(file => {
+      const filePath = path.join(dir, file);
+      const stat = fs.statSync(filePath);
       
-      if (entry.isDirectory()) {
-        scanDirectory(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        const contentFile = getContentFile(fullPath);
-        if (contentFile) {
-          if (contentFile.metadata && contentFile.metadata.id) {
-            console.debug(`[Debug] Found file: ${fullPath} with ID: ${contentFile.metadata.id}`);
-            results.push(contentFile);
-          } else {
-            console.warn(`[Warning] Skipped file with missing ID: ${fullPath}`);
-          }
+      if (stat.isDirectory()) {
+        // Recursively scan subdirectories
+        scanDirectory(filePath);
+      } else if (filePath.endsWith('.md')) {
+        try {
+          // Read the file and parse front matter
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const parsed = frontMatter<FrontMatterAttributes>(content);
+          
+          contentFiles.push({
+            filename: file,
+            filepath: filePath,
+            metadata: parsed.attributes,
+            content: content,
+            expiry_time: parsed.attributes.EXPIRY_TIME || null,
+            last_updated: parsed.attributes.UPDATE_TIME || undefined
+          });
+        } catch (error) {
+          console.warn(`[Warning] Failed to parse front matter in ${filePath}: ${error}`);
         }
       }
-    }
+    });
   }
   
-  scanDirectory(basePath);
-  console.info(`[Info] Found ${results.length} markdown files in ${basePath}`);
-  return results;
+  scanDirectory(contentDir);
+  return contentFiles;
 }
 
 /**
- * Deletes a content file from disk
+ * Get a content file by ID
+ * 
+ * @param contentDir - Directory to scan for content files
+ * @param id - Notion ID to search for
+ * @returns Content file if found, null otherwise
  */
-export function deleteContentFile(filepath: string): void {
-  try {
-    if (fs.existsSync(filepath)) {
-      console.info(`[Info] Deleting content file: ${filepath}`);
-      fs.unlinkSync(filepath);
-    }
-  } catch (error) {
-    console.error(`[Error] Failed to delete content file ${filepath}: ${error}`);
+export function getContentFile(contentDir: string, id: string): ContentFile | null {
+  const contentFiles = getAllContentFiles(contentDir);
+  
+  return contentFiles.find(file => {
+    const fileId = file.metadata?.id || 
+                  (file.metadata?.NOTION_METADATA?.id) || 
+                  null;
+    return fileId === id;
+  }) || null;
+}
+
+/**
+ * Check if a file is a bundle index
+ * 
+ * @param filepath - File path to check
+ * @returns Whether the file is a bundle index
+ */
+export function isBundleIndex(filepath: string): boolean {
+  const fileName = path.basename(filepath);
+  return fileName === 'index.md' || fileName === '_index.md';
+}
+
+/**
+ * Get all files in a bundle directory
+ * 
+ * @param bundleDirPath - Path to the bundle directory 
+ * @returns Array of file paths in the bundle directory
+ */
+export function getBundleFiles(bundleDirPath: string): string[] {
+  if (!fs.existsSync(bundleDirPath)) {
+    return [];
   }
-}
-
-/**
- * Find all content files that match a specific page ID pattern
- */
-export function findContentFilesByPageId(contentBasePath: string, pageId: string): string[] {
+  
   try {
-    if (!fs.existsSync(contentBasePath)) {
-      return [];
-    }
-    
-    const allFiles = getAllContentFiles(contentBasePath);
-    const result = allFiles.filter(file => 
-      file.filepath.includes(pageId) || 
-      (file.metadata?.id === pageId) || 
-      (file.metadata?.NOTION_METADATA?.id === pageId)
-    );
-    
-    return result.map(file => file.filepath);
+    return fs.readdirSync(bundleDirPath)
+      .map(file => path.join(bundleDirPath, file))
+      .filter(filePath => fs.statSync(filePath).isFile());
   } catch (error) {
-    console.error(`[Error] Failed to find content files for page ${pageId}: ${error}`);
+    console.error(`[Error] Failed to read bundle directory ${bundleDirPath}: ${error}`);
     return [];
   }
 }

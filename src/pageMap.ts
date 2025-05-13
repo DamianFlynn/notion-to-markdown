@@ -1,12 +1,13 @@
-import { Client, isFullPage, iteratePaginatedAPI } from "@notionhq/client";
+import { Client, isFullPage } from "@notionhq/client";
 import { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
 import fs from "fs-extra";
 import path from "path";
 import { DatabaseMount, PageMount } from "./config";
 import { getAllContentFiles } from "./file";
-import { getPageTitle, getFileName, getPageShouldBeProcessed } from "./helpers";
+import { getPageTitle, getPageShouldBeProcessed } from "./helpers";
 import { withRetry } from "./utils";
-import { getPageImages } from './imageTracker';
+import { getBundlePath } from './utils/bundle';
+import { DEFAULT_HUGO_BUNDLE_CONFIG } from './types/hugo';
 
 // Define interfaces for our mapping
 export interface PageMapItem {
@@ -27,6 +28,7 @@ export interface ContentFileMapItem {
   outputName: string;
   lastEdited: string;
   targetFolder: string;
+  isBundle: boolean;
   expiryTime: string | null;
   updateTime: string | null;
 }
@@ -53,20 +55,29 @@ export async function buildSourcePageMap(
   for (const mount of databaseMounts) {
     console.info(`[Info] Building page map for database ${mount.database_id}`);
     try {
-      for await (const page of iteratePaginatedAPI(notion.databases.query, {
+      for await (const pageItem of iteratePaginatedAPI(notion.databases.query, {
         database_id: mount.database_id,
       })) {
-        if (page.object !== "page") continue;
+        // Type guard for page objects
+        if (typeof pageItem !== 'object' || pageItem === null || (pageItem as any).object !== "page") continue;
         
-        const pageObj = page as PageObjectResponse;
+        const pageObj = pageItem as PageObjectResponse;
         const title = getPageTitle(pageObj);
-        const outputName = getFileName(title, pageObj.id);
+        
+        // Get bundle path
+        const bundlePath = getBundlePath({
+          title,
+          pageId: pageObj.id,
+          contentType: 'posts',
+          targetFolder: mount.target_folder
+        });
+        
         const shouldProcess = getPageShouldBeProcessed(pageObj);
         
         pageMap.push({
           id: pageObj.id,
           title,
-          outputName,
+          outputName: bundlePath.indexFileName,
           lastEdited: pageObj.last_edited_time,
           targetFolder: mount.target_folder,
           mountType: 'database',
@@ -92,13 +103,21 @@ export async function buildSourcePageMap(
       if (!isFullPage(pageObj)) continue;
       
       const title = getPageTitle(pageObj);
-      const outputName = getFileName(title, pageObj.id);
+      
+      // Get bundle path
+      const bundlePath = getBundlePath({
+        title,
+        pageId: pageObj.id,
+        contentType: 'page',
+        targetFolder: mount.target_folder
+      });
+      
       const shouldProcess = getPageShouldBeProcessed(pageObj);
       
       pageMap.push({
         id: pageObj.id,
         title,
-        outputName,
+        outputName: bundlePath.indexFileName,
         lastEdited: pageObj.last_edited_time,
         targetFolder: mount.target_folder,
         mountType: 'page',
@@ -116,6 +135,7 @@ export async function buildSourcePageMap(
 
 /**
  * Builds a map of all content files in target directories
+ * Updated to support bundle structure
  */
 export function buildContentFileMap(contentBasePath: string = "content"): ContentFileMapItem[] {
   console.info(`[Info] Building content file map from ${contentBasePath}`);
@@ -146,6 +166,8 @@ export function buildContentFileMap(contentBasePath: string = "content"): Conten
     
     // Extract target folder from filepath
     const relativePath = path.relative(contentBasePath, path.dirname(file.filepath));
+    const fileName = path.basename(file.filepath);
+    const isBundle = fileName === 'index.md' || fileName === '_index.md';
     
     contentFileMap.push({
       id,
@@ -153,6 +175,7 @@ export function buildContentFileMap(contentBasePath: string = "content"): Conten
       outputName: path.basename(file.filepath),
       lastEdited: file.metadata.last_edited_time || file.metadata.lastmod || '',
       targetFolder: relativePath || '.',
+      isBundle,
       expiryTime: file.metadata.EXPIRY_TIME || null,
       updateTime: file.metadata.UPDATE_TIME || null
     });
@@ -191,16 +214,30 @@ export function compareAndCreateActionMap(
       toCreate.push(sourcePage);
       console.debug(`[Debug] Marking ${sourcePage.title} for creation (no matching file found)`);
     } else {
-      // Check if name has changed - this is a rename
-      const oldBaseName = path.basename(matchingFile.filepath);
-      const newBaseName = sourcePage.outputName;
+      // For bundles, check the parent directory name
+      let hasStructuralChange = false;
       
-      if (oldBaseName !== newBaseName) {
-        console.debug(`[Debug] Detected page rename: "${oldBaseName}" -> "${newBaseName}"`);
-        renamedPages.set(sourcePage.id, {
-          oldName: oldBaseName,
-          newName: newBaseName
+      if (matchingFile.isBundle) {
+        const currentDir = path.basename(path.dirname(matchingFile.filepath));
+        
+        // Generate the bundle path to compare
+        const bundlePath = getBundlePath({
+          title: sourcePage.title,
+          pageId: sourcePage.id,
+          contentType: sourcePage.mountType === 'database' ? 'posts' : 'page',
+          targetFolder: sourcePage.targetFolder
         });
+        
+        const newDirName = path.basename(bundlePath.bundleDirPath);
+        
+        if (currentDir !== newDirName) {
+          console.debug(`[Debug] Detected bundle directory rename: "${currentDir}" -> "${newDirName}"`);
+          renamedPages.set(sourcePage.id, {
+            oldName: currentDir,
+            newName: newDirName
+          });
+          hasStructuralChange = true;
+        }
       }
       
       // Compare timestamps to detect changes
@@ -209,14 +246,11 @@ export function compareAndCreateActionMap(
                            new Date(matchingFile.lastEdited).toISOString() : 
                            '';
       
-      if (fileLastEdited !== sourceLastEdited || oldBaseName !== newBaseName) {
+      if (fileLastEdited !== sourceLastEdited || hasStructuralChange) {
         // If file exists but is outdated or renamed, mark for update
         toUpdate.push(sourcePage);
-        const reason = fileLastEdited !== sourceLastEdited ? "different edit times" : "page renamed";
+        const reason = fileLastEdited !== sourceLastEdited ? "different edit times" : "structure changed";
         console.debug(`[Debug] Marking ${sourcePage.title} for update due to ${reason}`);
-        if (reason === "different edit times") {
-          console.debug(`[Debug] Source last edited: ${sourceLastEdited}, File last edited: ${fileLastEdited}`);
-        }
       } else {
         // File is current, mark as unchanged
         unchanged.push(sourcePage);
@@ -248,11 +282,57 @@ export function ensureTargetDirectories(actionMap: PageActionMap): void {
   
   // Add directories for pages to be created or updated
   [...actionMap.toCreate, ...actionMap.toUpdate].forEach(page => {
-    dirsToCreate.add(`content/${page.targetFolder}`);
+    // Get bundle path
+    const bundlePath = getBundlePath({
+      title: page.title,
+      pageId: page.id,
+      contentType: page.mountType === 'database' ? 'posts' : 'page',
+      targetFolder: page.targetFolder
+    });
+    
+    dirsToCreate.add(bundlePath.bundleDirPath);
   });
   
   // Create all required directories
   dirsToCreate.forEach(dir => {
     fs.ensureDirSync(dir);
   });
+}
+
+/**
+ * Helper function for pagination with proper typing
+ */
+async function* iteratePaginatedAPI<T>(method: Function, args: any): AsyncGenerator<T> {
+  let hasMore = true;
+  let cursor: string | undefined = undefined;
+  
+  while (hasMore) {
+    const response = await withRetry(() => 
+      method({
+        ...args,
+        start_cursor: cursor,
+      })
+    );
+    
+    if (!response || typeof response !== 'object') {
+      console.warn('[Warning] API returned invalid response');
+      return;
+    }
+    
+    // Safely access results - use type assertion to handle the unknown response type
+    const responseObj = response as { 
+      results?: unknown[],
+      has_more?: boolean,
+      next_cursor?: string
+    };
+    
+    const results = Array.isArray(responseObj.results) ? responseObj.results : [];
+    for (const item of results) {
+      yield item as T;
+    }
+    
+    // Safely check has_more property
+    hasMore = responseObj.has_more === true;
+    cursor = typeof responseObj.next_cursor === 'string' ? responseObj.next_cursor : undefined;
+  }
 }

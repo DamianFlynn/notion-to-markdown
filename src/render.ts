@@ -18,6 +18,8 @@ import { getContentFile } from "./file";
 import { withRetry, createFaultTolerantFunction } from "./utils";
 import { processImagesInMarkdown } from './imageHandler';
 import { PropertyMap, RenderOptions, RenderResult, NotionToMarkdown as N2M } from "./types";
+import { getBundlePath, BundlePath, ensureBundleDirectory } from "./utils/bundle";
+import { DEFAULT_HUGO_BUNDLE_CONFIG } from './types/hugo';
 
 /**
  * Configuration options for retrying failed operations
@@ -300,6 +302,15 @@ export async function renderPage(
   const title = getPageTitle(page);
   console.debug(`[Debug] Page title: ${title}`);
   
+  // Get the bundle path
+  const bundlePath = getBundlePath({
+    title,
+    pageId: page.id,
+    contentType: 'posts', // Default to posts
+    targetFolder: options.targetFolder || '',
+    bundleConfig: options.hugoConfig || DEFAULT_HUGO_BUNDLE_CONFIG
+  });
+  
   // Get the page content
   const pageBlocks = await n2m.pageToMarkdown(page.id);
   
@@ -312,10 +323,14 @@ export async function renderPage(
     console.debug(`[Debug] Page has expiry time: ${expiryTime}`);
   }
   
-  // Process images in the markdown using the new image tracking system
+  // Ensure bundle directory exists
+  ensureBundleDirectory(bundlePath);
+  
+  // Process images in the markdown using the bundle structure
   const { content, downloadTasks } = await processImagesInMarkdown(
     markdown.parent, 
-    page.id
+    page.id,
+    bundlePath
   );
   
   // Wait for all image downloads to complete
@@ -338,7 +353,8 @@ ${content}`;
 
   return { 
     content: output, 
-    title 
+    title,
+    bundlePath 
   };
 }
 
@@ -403,21 +419,22 @@ export async function savePage(
   try {
     if (getPageShouldBeProcessed(page)) {
       const title = getPageTitle(page);
-      const fileName = getFileName(title, page.id);
-      const postpath = path.join("content", mount.target_folder, fileName);
       
-      console.info(`[Info] Processing page ${title} to ${postpath}`);
+      console.info(`[Info] Processing page ${title} to ${mount.target_folder}`);
       
       // Get rendered page content
-      const { content } = await renderPageSimple(page, notion);
+      const { content, bundlePath } = await renderPage(page, {}, { 
+        notion,
+        targetFolder: mount.target_folder
+      });
       
-      // Ensure target directory exists
-      fs.ensureDirSync(path.join("content", mount.target_folder));
+      // Ensure target directory exists (bundle or parent directory)
+      ensureBundleDirectory(bundlePath);
       
-      // Create content file directly without running Hugo command
-      fs.writeFileSync(postpath, content);
+      // Write content to index file
+      fs.writeFileSync(bundlePath.indexFilePath, content);
       
-      console.info(`[Info] Successfully saved ${postpath}`);
+      console.info(`[Info] Successfully saved ${bundlePath.indexFilePath}`);
     }
   } catch (error) {
     console.error(`[Error] Failed to save page ${page.id}: ${error}`);

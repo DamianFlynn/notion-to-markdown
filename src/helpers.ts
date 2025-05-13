@@ -94,3 +94,17 @@ export function getFileName(title: string, page_id: string): string {
     ".md"
   );
 }
+
+/**
+ * Get content file with a fallback retrieval method
+ * Use this instead of direct imports from file.ts to avoid circular dependencies
+ */
+export function getContentFileWithFallback(filepath: string): any | null {
+  try {
+    const { getContentFileByPath } = require('./file');
+    return getContentFileByPath(filepath);
+  } catch (error) {
+    console.error(`[Error] Failed to get content file ${filepath}: ${error}`);
+    return null;
+  }
+}

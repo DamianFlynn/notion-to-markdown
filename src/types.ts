@@ -1,5 +1,7 @@
 import { Client } from "@notionhq/client";
 import { PageObjectResponse, GetBlockResponse } from "@notionhq/client/build/src/api-endpoints";
+import { BundlePath } from "./utils/bundle";
+import { HugoBundleConfig } from "./types/hugo";
 
 /**
  * Type definitions for the Notion to Markdown application
@@ -13,9 +15,31 @@ export interface RenderOptions {
    * Notion client instance
    */
   notion?: Client;
+  
+  /**
+   * Whether to download resources
+   */
   download?: boolean;
+  
+  /**
+   * Base URL for resources
+   */
   baseUrl?: string;
+  
+  /**
+   * Property mapping
+   */
   propertyMap?: PropertyMap;
+  
+  /**
+   * Target folder for content
+   */
+  targetFolder?: string;
+  
+  /**
+   * Hugo bundle configuration
+   */
+  hugoConfig?: HugoBundleConfig;
 }
 
 /**
@@ -31,6 +55,11 @@ export interface RenderResult {
    * The title of the page
    */
   title: string;
+  
+  /**
+   * Bundle path information
+   */
+  bundlePath: BundlePath;
 }
 
 /**

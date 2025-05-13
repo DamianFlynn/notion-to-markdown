@@ -4,12 +4,13 @@ import axios from 'axios';
 import { URL } from 'url';
 import { 
   IMAGE_DIR,
-  generateImageFilename,
   generateContentId,
   shouldFetchImage, 
   trackImage,
   findLatestImageByContentId 
 } from './imageTracker';
+import { BundlePath } from './utils/bundle';
+import crypto from 'crypto';
 
 interface ImageInfo {
   originalUrl: string;
@@ -18,6 +19,16 @@ interface ImageInfo {
   shouldDownload: boolean;
   contentId: string;
 }
+
+interface ImageProcessingResult {
+  content: string;
+  downloadTasks: Promise<void>[];
+}
+
+/**
+ * Track images that have been downloaded in the current session
+ */
+const downloadedImages = new Set<string>();
 
 /**
  * Check if a URL is from a Notion CDN
@@ -131,52 +142,173 @@ export async function downloadImage(imageUrl: string, filePath: string, contentI
 }
 
 /**
- * Process markdown content to replace all Notion image URLs with local ones
+ * Process images in markdown content and update paths for bundle structure
+ * 
+ * @param markdown - Original markdown content
+ * @param pageId - ID of the Notion page
+ * @param bundlePath - Path information for the bundle
+ * @returns Updated markdown and download tasks
  */
 export async function processImagesInMarkdown(
-  markdownContent: string, 
-  pageId: string
-): Promise<{ content: string, downloadTasks: Promise<void>[] }> {
-  // Regular expressions to find image links in markdown and HTML
-  const markdownImageRegex = /!\[.*?\]\((https?:\/\/[^\s)]+)\)/g;
-  const htmlImageRegex = /<img.*?src=["'](https?:\/\/[^\s"']+)["'].*?>/g;
+  markdown: string, 
+  pageId: string,
+  bundlePath: BundlePath
+): Promise<ImageProcessingResult> {
   const downloadTasks: Promise<void>[] = [];
+  let updatedContent = markdown;
   
-  // Helper function for processing any found image
-  const processImage = async (url: string): Promise<string> => {
-    try {
-      const imageInfo = await processNotionImage(url, pageId);
-      
-      // Queue the download if needed
-      if (imageInfo.shouldDownload) {
-        const targetPath = path.join(process.cwd(), IMAGE_DIR, imageInfo.filename);
-        const downloadTask = downloadImage(url, targetPath, imageInfo.contentId)
-          .catch(err => console.error(`[Error] Failed to download image ${imageInfo.filename}:`, err));
-        
-        downloadTasks.push(downloadTask);
-      }
-      
-      // Replace the original URL with the local path
-      return imageInfo.localPath;
-    } catch (error) {
-      console.warn(`[Warning] Failed to process image ${url}:`, error);
-      return url; // Keep original URL on error
+  // Regular expression to find images in markdown
+  const imageRegex = /!\[(.*?)\]\((https:\/\/[^\s\)]+)\)/g;
+  let match;
+  
+  while ((match = imageRegex.exec(markdown)) !== null) {
+    const [fullMatch, altText, imageUrl] = match;
+    
+    // Generate image filename
+    const imageFileName = generateImageFilename(imageUrl, pageId);
+    
+    // Create image path based on bundle structure
+    const imagePath = path.join(bundlePath.bundleDirPath, imageFileName);
+    
+    // Create relative path for markdown
+    let imageRelativePath = imageFileName;
+    if (!bundlePath.isBundle) {
+      // For flat structure, use path relative to content
+      imageRelativePath = path.join('/images', imageFileName);
     }
+    
+    // Replace the image URL in the markdown
+    updatedContent = updatedContent.replace(
+      fullMatch, 
+      `![${altText}](${imageRelativePath})`
+    );
+    
+    // Don't download if already processed
+    if (downloadedImages.has(imageUrl)) {
+      continue;
+    }
+    
+    // Add download task
+    downloadTasks.push(
+      downloadImage(imageUrl, imagePath, pageId)
+        .then(() => {
+          downloadedImages.add(imageUrl);
+          console.debug(`[Debug] Downloaded image: ${imageUrl} to ${imagePath}`);
+        })
+        .catch(error => {
+          console.error(`[Error] Failed to download image ${imageUrl}: ${error.message}`);
+        })
+    );
+  }
+  
+  return {
+    content: updatedContent,
+    downloadTasks
   };
+}
 
-  // Replace all markdown image URLs
-  let newContent = await replaceAsync(markdownContent, markdownImageRegex, async (match, url) => {
-    const localUrl = await processImage(url);
-    return match.replace(url, localUrl);
-  });
+/**
+ * Generate a consistent filename for an image based on its URL and a content ID
+ * 
+ * @param imageUrl - URL of the image
+ * @param contentId - ID of the page or content the image belongs to
+ * @returns A consistent filename for the image
+ */
+function generateImageFilename(imageUrl: string, contentId: string): string {
+  // Extract original filename from URL if possible
+  let originalFilename = '';
+  try {
+    originalFilename = path.basename(new URL(imageUrl).pathname);
+    // Remove query parameters if present
+    originalFilename = originalFilename.split('?')[0];
+  } catch (e) {
+    // URL parsing failed, use a hash of the URL
+    originalFilename = '';
+  }
+
+  // If we couldn't extract a meaningful filename, generate a hash
+  if (!originalFilename || originalFilename.length < 3) {
+    // Create a hash from the URL for consistent naming
+    const hash = crypto.createHash('md5').update(imageUrl).digest('hex').substring(0, 8);
+    const ext = guessImageExtension(imageUrl);
+    originalFilename = `image-${hash}${ext}`;
+  }
+
+  // Add content ID prefix for organization
+  const prefix = contentId.replace(/-/g, '').substring(0, 8);
+  return `img-${prefix}-${originalFilename}`;
+}
+
+/**
+ * Guess the image extension based on URL or content type
+ */
+function guessImageExtension(url: string): string {
+  const extensionMatch = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
+  if (extensionMatch && ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(extensionMatch[1].toLowerCase())) {
+    return `.${extensionMatch[1].toLowerCase()}`;
+  }
   
-  // Replace all HTML image URLs too
-  newContent = await replaceAsync(newContent, htmlImageRegex, async (match, url) => {
-    const localUrl = await processImage(url);
-    return match.replace(url, localUrl);
-  });
+  // Default extension if we can't determine it
+  return '.png';
+}
+
+/**
+ * Process Notion block with image
+ * 
+ * @param block - Notion block containing an image
+ * @param pageId - ID of the page
+ * @param bundlePath - Path information for the bundle
+ * @returns Markdown representation of the image
+ */
+export async function processImageBlock(block: any, pageId: string, bundlePath: BundlePath): Promise<string> {
+  if (!block.image) {
+    return '';
+  }
   
-  return { content: newContent, downloadTasks };
+  const imageUrl = block.image.file?.url || block.image.external?.url;
+  if (!imageUrl) {
+    return '';
+  }
+  
+  // Generate image filename
+  const imageFileName = generateImageFilename(imageUrl, pageId);
+  
+  // Create image path based on bundle structure
+  const imagePath = path.join(bundlePath.bundleDirPath, imageFileName);
+  
+  // Create relative path for markdown
+  let imageRelativePath = imageFileName;
+  if (!bundlePath.isBundle) {
+    // For flat structure, use path relative to content
+    imageRelativePath = path.join('/images', imageFileName);
+  }
+  
+  // Get caption if available
+  const caption = block.image.caption
+    ? block.image.caption.map((richText: any) => richText.plain_text).join('')
+    : 'Image';
+  
+  // Download image if not already processed
+  if (!downloadedImages.has(imageUrl)) {
+    try {
+      await downloadImage(imageUrl, imagePath, pageId);
+      downloadedImages.add(imageUrl);
+      console.debug(`[Debug] Downloaded image block: ${imageUrl} to ${imagePath}`);
+    } catch (error) {
+      console.error(`[Error] Failed to download image block ${imageUrl}:`, error);
+    }
+  }
+  
+  // Return markdown for image
+  return `![${caption}](${imageRelativePath})\n\n`;
+}
+
+/**
+ * Get a map of image paths for a Notion page
+ */
+export async function getPageImages(pageId: string): Promise<Map<string, string>> {
+  // This is a placeholder for actual implementation
+  return new Map();
 }
 
 /**

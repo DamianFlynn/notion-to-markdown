@@ -123,6 +123,7 @@ export interface ContentFile {
   filename: string;
   filepath: string;
   metadata: any;
+  content?: string;
   expiry_time: string | null | undefined;
   last_updated?: string;
 }

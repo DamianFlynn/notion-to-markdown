@@ -7,6 +7,8 @@ import { renderPage } from './render';
 import fs from 'fs-extra';
 import path from 'path';
 import { getPageTitle } from './helpers';
+import { getBundlePath, ensureBundleDirectory } from './utils/bundle';
+import { DEFAULT_HUGO_BUNDLE_CONFIG } from './types/hugo';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -45,24 +47,12 @@ async function main() {
   // Compare maps and determine what actions to take
   const actionMap = compareAndCreateActionMap(sourcePages, contentFiles);
   
-  // IMPORTANT: Track page ID to filename mappings to detect renames
-  const pageIdToFilename: Map<string, string> = new Map();
-  for (const file of contentFiles) {
-    pageIdToFilename.set(file.id, file.filepath);
-  }
-  
-  // Track files that need to be cleaned up due to renames
-  const filesToCleanup: string[] = [];
-  
   // Log actions
   console.info('[Info] Action summary:');
   console.info(`       - ${actionMap.toCreate.length} pages to create`);
   console.info(`       - ${actionMap.toUpdate.length} pages to update`);
   console.info(`       - ${actionMap.unchanged.length} pages unchanged`);
   console.info(`       - ${actionMap.toDelete.length} pages to delete`);
-  
-  // Create target directories
-  ensureTargetDirectories(actionMap);
   
   // Create default property map
   const defaultPropertyMap: PropertyMap = {
@@ -86,78 +76,71 @@ async function main() {
       continue;
     }
     
-    // Check if this is a renamed page
-    const oldFilePath = pageIdToFilename.get(page.id);
-    const outPath = path.join('content', page.targetFolder, page.outputName);
-    
-    if (oldFilePath && path.basename(oldFilePath) !== page.outputName) {
-      // This is a renamed page - mark the old file for cleanup
-      console.info(`[Info] Detected page rename: "${path.basename(oldFilePath)}" -> "${page.outputName}"`);
-      filesToCleanup.push(oldFilePath);
-    }
-    
-    console.info(`[Info] Processing page ${page.title} to ${outPath}`);
+    console.info(`[Info] Processing page ${page.title} to ${page.targetFolder}`);
     
     try {
-      const { content } = await renderPage(page.page, defaultPropertyMap, { notion });
-      fs.writeFileSync(outPath, content);
+      const { content, bundlePath } = await renderPage(page.page, defaultPropertyMap, { 
+        notion,
+        targetFolder: page.targetFolder
+      });
+      
+      // Ensure bundle directory exists
+      ensureBundleDirectory(bundlePath);
+      
+      // Write content to index file
+      fs.writeFileSync(bundlePath.indexFilePath, content);
+      
+      console.info(`[Info] Successfully saved ${bundlePath.indexFilePath}`);
     } catch (error) {
       console.error(`[Error] Failed to process page ${page.title}: ${error}`);
     }
   }
   
-  // Clean up renamed files
-  for (const filePath of filesToCleanup) {
-    if (fs.existsSync(filePath)) {
-      console.info(`[Info] Removing renamed file: ${filePath}`);
-      fs.unlinkSync(filePath);
-    }
-  }
-  
   // Delete pages that no longer exist
   for (const file of actionMap.toDelete) {
-    console.info(`[Info] Deleting ${file.filepath}`);
-    if (fs.existsSync(file.filepath)) {
-      fs.unlinkSync(file.filepath);
+    const filePath = file.filepath;
+    console.info(`[Info] Deleting ${filePath}`);
+    
+    if (fs.existsSync(filePath)) {
+      // Check if this is a bundle (directory with index.md)
+      const dirPath = path.dirname(filePath);
+      const fileName = path.basename(filePath);
+      
+      if (fileName === 'index.md') {
+        // This is a bundle, remove the entire directory
+        fs.removeSync(dirPath);
+        console.info(`[Info] Removed bundle directory ${dirPath}`);
+      } else {
+        // This is a flat file, just remove the file
+        fs.unlinkSync(filePath);
+      }
     }
   }
   
   // After processing all pages, keep track of all successfully processed page IDs
   const processedPageIds = new Set<string>();
-  const processedPageOutputs = new Set<string>();
   
   for (const page of [...actionMap.toCreate, ...actionMap.toUpdate, ...actionMap.unchanged]) {
     if (page.shouldProcess) {
       processedPageIds.add(page.id);
-      // Also track the expected output filenames
-      processedPageOutputs.add(path.join('content', page.targetFolder, page.outputName));
     }
   }
   
   // Clean up orphaned content that doesn't match current pages
-  await cleanupOrphanedContent(processedPageIds, processedPageOutputs, contentFiles);
+  await cleanupOrphanedContent(processedPageIds, contentFiles);
   
   console.info('[Info] Notion to Markdown conversion complete');
 }
 
-// Updated function to clean up orphaned content
+// Updated function to clean up orphaned content with bundle support
 async function cleanupOrphanedContent(
   processedPageIds: Set<string>, 
-  processedOutputs: Set<string>,
   contentFiles: ContentFileMapItem[]
 ): Promise<void> {
   console.info('[Info] Checking for orphaned content files to clean up...');
   
   // Find files that exist in the filesystem but aren't in the processed pages list
-  // or don't match the expected output filename (renamed pages)
-  const orphanedFiles = contentFiles.filter(file => {
-    // If the page ID isn't in our processed set, it's orphaned
-    if (!processedPageIds.has(file.id)) return true;
-    
-    // If the page ID is processed but the filename doesn't match expected output, it's orphaned
-    // (This catches renames that weren't handled earlier)
-    return !processedOutputs.has(file.filepath);
-  });
+  const orphanedFiles = contentFiles.filter(file => !processedPageIds.has(file.id));
   
   if (orphanedFiles.length === 0) {
     console.info('[Info] No orphaned content files found');
@@ -169,43 +152,23 @@ async function cleanupOrphanedContent(
   for (const file of orphanedFiles) {
     try {
       if (fs.existsSync(file.filepath)) {
-        console.info(`[Info] Removing orphaned file: ${file.filepath}`);
-        fs.unlinkSync(file.filepath);
+        // Check if this is a bundle
+        const dirPath = path.dirname(file.filepath);
+        const fileName = path.basename(file.filepath);
         
-        // Also check if there are orphaned images associated with this page
-        cleanupOrphanedImages(file.id);
+        if (fileName === 'index.md') {
+          // This is a bundle, remove the entire directory
+          fs.removeSync(dirPath);
+          console.info(`[Info] Removed orphaned bundle directory ${dirPath}`);
+        } else {
+          // This is a flat file, just remove the file
+          fs.unlinkSync(file.filepath);
+          console.info(`[Info] Removing orphaned file: ${file.filepath}`);
+        }
       }
     } catch (error) {
       console.error(`[Error] Failed to remove orphaned file ${file.filepath}: ${error}`);
     }
-  }
-}
-
-// Add this function to clean up orphaned images
-function cleanupOrphanedImages(pageId: string): void {
-  const pageIdPrefix = pageId.replace(/-/g, '').substring(0, 8);
-  const imageDir = path.join(process.cwd(), 'static/images');
-  
-  if (!fs.existsSync(imageDir)) {
-    return;
-  }
-  
-  try {
-    const files = fs.readdirSync(imageDir);
-    const pageImagePattern = `notion-${pageIdPrefix}-`;
-    
-    const orphanedImages = files.filter(file => 
-      file.startsWith(pageImagePattern) && 
-      !file.startsWith('.')
-    );
-    
-    for (const image of orphanedImages) {
-      const imagePath = path.join(imageDir, image);
-      console.info(`[Info] Removing orphaned image: ${imagePath}`);
-      fs.unlinkSync(imagePath);
-    }
-  } catch (error) {
-    console.error(`[Error] Failed to clean up orphaned images for page ${pageId}: ${error}`);
   }
 }
 
