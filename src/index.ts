@@ -47,6 +47,12 @@ async function main() {
   // Compare maps and determine what actions to take
   const actionMap = compareAndCreateActionMap(sourcePages, contentFiles);
   
+  // Track files that need to be cleaned up (old flat files when converting to bundles)
+  const filesToCleanup: string[] = [];
+  
+  // Track successful bundle conversions for image cleanup
+  const bundleConversions: {oldPath: string, newBundlePath: string, pageId: string}[] = [];
+  
   // Log actions
   console.info('[Info] Action summary:');
   console.info(`       - ${actionMap.toCreate.length} pages to create`);
@@ -64,6 +70,15 @@ async function main() {
     "Author": { name: "Author", type: "people" },
     "Publish Date": { name: "date", type: "date" },
   };
+
+  // Find matching content file for each page to track legacy files that need cleanup
+  const legacyMapping = new Map<string, string>();
+  for (const page of [...actionMap.toUpdate]) {
+    const matchingFile = contentFiles.find(file => file.id === page.id);
+    if (matchingFile) {
+      legacyMapping.set(page.id, matchingFile.filepath);
+    }
+  }
   
   // Process pages to create or update
   const pagesToProcess = [...actionMap.toCreate, ...actionMap.toUpdate];
@@ -83,6 +98,25 @@ async function main() {
         notion,
         targetFolder: page.targetFolder
       });
+      
+      // Check if this is a conversion from flat to bundle structure
+      const oldFilePath = legacyMapping.get(page.id);
+      const isConvertingToBundle = oldFilePath && 
+                                  bundlePath.isBundle && 
+                                  path.basename(oldFilePath) !== bundlePath.indexFileName;
+      
+      // If converting from flat to bundle, track the old file for cleanup
+      if (isConvertingToBundle) {
+        console.info(`[Info] Converting ${path.basename(oldFilePath)} to bundle structure: ${bundlePath.bundleDirPath}`);
+        filesToCleanup.push(oldFilePath);
+        
+        // Track this conversion for image cleanup
+        bundleConversions.push({
+          oldPath: oldFilePath,
+          newBundlePath: bundlePath.bundleDirPath,
+          pageId: page.id
+        });
+      }
       
       // Ensure bundle directory exists
       ensureBundleDirectory(bundlePath);
@@ -113,6 +147,7 @@ async function main() {
       } else {
         // This is a flat file, just remove the file
         fs.unlinkSync(filePath);
+        console.info(`[Info] Removed flat file ${filePath}`);
       }
     }
   }
@@ -126,10 +161,80 @@ async function main() {
     }
   }
   
+  // Clean up files that were migrated from flat to bundle structure
+  for (const oldFilePath of filesToCleanup) {
+    if (fs.existsSync(oldFilePath)) {
+      console.info(`[Info] Removing original file after conversion to bundle: ${oldFilePath}`);
+      fs.unlinkSync(oldFilePath);
+    }
+  }
+  
+  // Move images from static/images to bundle folders for migrated pages
+  for (const conversion of bundleConversions) {
+    await migrateImagesToBundle(conversion.pageId, conversion.newBundlePath);
+  }
+  
   // Clean up orphaned content that doesn't match current pages
   await cleanupOrphanedContent(processedPageIds, contentFiles);
   
   console.info('[Info] Notion to Markdown conversion complete');
+}
+
+/**
+ * Migrate images from static/images to the bundle directory
+ */
+async function migrateImagesToBundle(pageId: string, bundleDirPath: string): Promise<void> {
+  const staticImagesDir = path.join('static', 'images');
+  if (!fs.existsSync(staticImagesDir)) {
+    return;
+  }
+  
+  try {
+    const pageIdShort = pageId.replace(/-/g, '').substring(0, 8);
+    const pageImagePattern = new RegExp(`(?:notion|img)-${pageIdShort}-`);
+    
+    // Find all images related to this page
+    const allImages = fs.readdirSync(staticImagesDir)
+      .filter(file => pageImagePattern.test(file) && !file.startsWith('.'));
+    
+    if (allImages.length === 0) {
+      return;
+    }
+    
+    console.info(`[Info] Migrating ${allImages.length} images to bundle: ${bundleDirPath}`);
+    
+    for (const imageName of allImages) {
+      const sourceImagePath = path.join(staticImagesDir, imageName);
+      const targetImagePath = path.join(bundleDirPath, imageName);
+      
+      try {
+        // Copy image to bundle directory
+        fs.copyFileSync(sourceImagePath, targetImagePath);
+        
+        // Update references in content file
+        const contentFilePath = path.join(bundleDirPath, 'index.md');
+        if (fs.existsSync(contentFilePath)) {
+          let content = fs.readFileSync(contentFilePath, 'utf-8');
+          
+          // Update image references from /static/images/name.jpg to ./name.jpg
+          content = content.replace(
+            new RegExp(`\\(/(?:static/)?images/${imageName}\\)`, 'g'),
+            `(./${imageName})`
+          );
+          
+          fs.writeFileSync(contentFilePath, content);
+        }
+        
+        // Remove the original image file
+        fs.unlinkSync(sourceImagePath);
+        console.debug(`[Debug] Migrated image: ${imageName} to bundle structure`);
+      } catch (error) {
+        console.error(`[Error] Failed to migrate image ${imageName} to bundle: ${error}`);
+      }
+    }
+  } catch (error) {
+    console.error(`[Error] Failed to migrate images for page ${pageId}: ${error}`);
+  }
 }
 
 // Updated function to clean up orphaned content with bundle support
@@ -166,9 +271,39 @@ async function cleanupOrphanedContent(
           console.info(`[Info] Removing orphaned file: ${file.filepath}`);
         }
       }
+      
+      // Also clean up orphaned images for this file
+      cleanupOrphanedImages(file.id);
     } catch (error) {
       console.error(`[Error] Failed to remove orphaned file ${file.filepath}: ${error}`);
     }
+  }
+}
+
+/**
+ * Clean up orphaned images for a specific page ID
+ */
+function cleanupOrphanedImages(pageId: string): void {
+  const staticImagesDir = path.join('static', 'images');
+  if (!fs.existsSync(staticImagesDir)) {
+    return;
+  }
+  
+  try {
+    const pageIdShort = pageId.replace(/-/g, '').substring(0, 8);
+    const pageImagePattern = new RegExp(`(?:notion|img)-${pageIdShort}-`);
+    
+    // Find all images related to this page
+    const orphanedImages = fs.readdirSync(staticImagesDir)
+      .filter(file => pageImagePattern.test(file) && !file.startsWith('.'));
+    
+    for (const imageName of orphanedImages) {
+      const imagePath = path.join(staticImagesDir, imageName);
+      console.info(`[Info] Removing orphaned image: ${imagePath}`);
+      fs.unlinkSync(imagePath);
+    }
+  } catch (error) {
+    console.error(`[Error] Failed to clean up orphaned images for page ${pageId}: ${error}`);
   }
 }
 

@@ -158,47 +158,86 @@ export async function processImagesInMarkdown(
   let updatedContent = markdown;
   
   // Regular expression to find images in markdown
-  const imageRegex = /!\[(.*?)\]\((https:\/\/[^\s\)]+)\)/g;
+  const imageRegex = /!\[(.*?)\]\((https:\/\/[^\s\)]+|\/(?:static\/)?images\/[^\s\)]+)\)/g;
   let match;
   
   while ((match = imageRegex.exec(markdown)) !== null) {
     const [fullMatch, altText, imageUrl] = match;
     
-    // Generate image filename
-    const imageFileName = generateImageFilename(imageUrl, pageId);
-    
-    // Create image path based on bundle structure
-    const imagePath = path.join(bundlePath.bundleDirPath, imageFileName);
-    
-    // Create relative path for markdown
-    let imageRelativePath = imageFileName;
-    if (!bundlePath.isBundle) {
-      // For flat structure, use path relative to content
-      imageRelativePath = path.join('/images', imageFileName);
+    // Check if this is a local image reference or a Notion URL
+    if (imageUrl.startsWith('/static/images/') || imageUrl.startsWith('/images/')) {
+      // Handle local images
+      if (bundlePath.isBundle) {
+        // For bundle structure, copy the image to the bundle directory
+        const imageName = path.basename(imageUrl);
+        const sourceImagePath = path.join(process.cwd(), imageUrl.replace(/^\//, ''));
+        const targetImagePath = path.join(bundlePath.bundleDirPath, imageName);
+        
+        if (fs.existsSync(sourceImagePath)) {
+          try {
+            // Copy image to bundle directory
+            fs.copyFileSync(sourceImagePath, targetImagePath);
+            
+            // Update reference in markdown
+            updatedContent = updatedContent.replace(
+              fullMatch, 
+              `![${altText}](./${imageName})`
+            );
+            
+            // Schedule removal of original image
+            downloadTasks.push(
+              Promise.resolve().then(() => {
+                try {
+                  fs.unlinkSync(sourceImagePath);
+                  console.debug(`[Debug] Migrated image: ${imageName} to bundle structure`);
+                } catch (error) {
+                  console.error(`[Error] Failed to cleanup migrated image ${sourceImagePath}: ${error}`);
+                }
+              })
+            );
+          } catch (error) {
+            console.error(`[Error] Failed to migrate image ${sourceImagePath} to ${targetImagePath}: ${error}`);
+          }
+        }
+      }
+    } else {
+      // Handle Notion URLs
+      // Generate image filename
+      const imageFileName = generateImageFilename(imageUrl, pageId);
+      
+      // Create image path based on bundle structure
+      const imagePath = path.join(bundlePath.bundleDirPath, imageFileName);
+      
+      // Create relative path for markdown
+      let imageRelativePath = imageFileName;
+      if (!bundlePath.isBundle) {
+        // For flat structure, use path relative to content
+        imageRelativePath = path.join('/images', imageFileName);
+      }
+      
+      // Replace the image URL in the markdown
+      updatedContent = updatedContent.replace(
+        fullMatch, 
+        `![${altText}](${imageRelativePath})`
+      );
+      
+      // Don't download if already processed
+      if (downloadedImages.has(imageUrl)) {
+        continue;
+      }
+      
+      // Add download task
+      downloadTasks.push(
+        downloadImage(imageUrl, imagePath, pageId)
+          .then(() => {
+            downloadedImages.add(imageUrl);
+            console.debug(`[Debug] Downloaded image: ${imageUrl} to ${imagePath}`);
+          })
+          .catch(error => {
+            console.error(`[Error] Failed to download image ${imageUrl}: ${error.message}`);
+          })
+      );
     }
-    
-    // Replace the image URL in the markdown
-    updatedContent = updatedContent.replace(
-      fullMatch, 
-      `![${altText}](${imageRelativePath})`
-    );
-    
-    // Don't download if already processed
-    if (downloadedImages.has(imageUrl)) {
-      continue;
-    }
-    
-    // Add download task
-    downloadTasks.push(
-      downloadImage(imageUrl, imagePath, pageId)
-        .then(() => {
-          downloadedImages.add(imageUrl);
-          console.debug(`[Debug] Downloaded image: ${imageUrl} to ${imagePath}`);
-        })
-        .catch(error => {
-          console.error(`[Error] Failed to download image ${imageUrl}: ${error.message}`);
-        })
-    );
   }
   
   return {

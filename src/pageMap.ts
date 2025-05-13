@@ -238,6 +238,19 @@ export function compareAndCreateActionMap(
           });
           hasStructuralChange = true;
         }
+      } else {
+        // Check if we're converting from flat to bundle structure
+        const bundlePath = getBundlePath({
+          title: sourcePage.title,
+          pageId: sourcePage.id,
+          contentType: sourcePage.mountType === 'database' ? 'posts' : 'page',
+          targetFolder: sourcePage.targetFolder
+        });
+        
+        if (bundlePath.isBundle) {
+          console.debug(`[Debug] Converting from flat file to bundle structure: ${sourcePage.title}`);
+          hasStructuralChange = true;
+        }
       }
       
       // Compare timestamps to detect changes
@@ -247,9 +260,11 @@ export function compareAndCreateActionMap(
                            '';
       
       if (fileLastEdited !== sourceLastEdited || hasStructuralChange) {
-        // If file exists but is outdated or renamed, mark for update
+        // If file exists but is outdated or structure changed, mark for update
         toUpdate.push(sourcePage);
-        const reason = fileLastEdited !== sourceLastEdited ? "different edit times" : "structure changed";
+        const reason = hasStructuralChange ? 
+                      "structure changed" : 
+                      "different edit times";
         console.debug(`[Debug] Marking ${sourcePage.title} for update due to ${reason}`);
       } else {
         // File is current, mark as unchanged
@@ -326,8 +341,9 @@ async function* iteratePaginatedAPI<T>(method: Function, args: any): AsyncGenera
       next_cursor?: string
     };
     
-    const results = Array.isArray(responseObj.results) ? responseObj.results : [];
-    for (const item of results) {
+    // Fixed: Don't reference results in its own initialization
+    const resultsArray = Array.isArray(responseObj.results) ? responseObj.results : [];
+    for (const item of resultsArray) {
       yield item as T;
     }
     
