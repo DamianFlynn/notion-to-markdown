@@ -77,6 +77,7 @@ export interface PropertyMap {
     
     /**
      * Type of the property
+     * Valid types: title, date, select, multi_select, people, status, number, etc.
      */
     type: string;
   };

@@ -69,6 +69,8 @@ async function main() {
     "Tags": { name: "Tags", type: "multi_select" },
     "Author": { name: "Author", type: "people" },
     "Publish Date": { name: "date", type: "date" },
+    "Series": { name: "series", type: "select" },    // Added series mapping
+    "Weight": { name: "weight", type: "number" }     // Added weight for series ordering
   };
 
   // Find matching content file for each page to track legacy files that need cleanup

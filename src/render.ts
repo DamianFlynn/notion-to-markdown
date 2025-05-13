@@ -184,69 +184,81 @@ function loadCustomTransformers(n2m: NotionToMarkdown): void {
  * @param propertyMap - Map of property names to front matter fields
  * @returns YAML front matter as a string
  */
-function createFrontMatter(page: PageObjectResponse, propertyMap: PropertyMap): string {
-  const frontMatter: Record<string, any> = {
+export function createFrontMatter(page: PageObjectResponse, propertyMap: PropertyMap): string {
+  const frontMatterObj: Record<string, any> = {
     title: getPageTitle(page),
     date: page.created_time,
     lastmod: page.last_edited_time,
     draft: true,
   };
   
-  // Map Notion properties to front matter based on propertyMap
+  // Process each property in the page
   if (page.properties) {
     Object.entries(page.properties).forEach(([key, property]) => {
       const mapping = propertyMap[key];
       if (mapping) {
         // Extract the property value based on its type
-        switch (property.type) {
-          case "title":
-            // Title is already handled
-            break;
-          case "rich_text":
-            if (property.rich_text.length > 0) {
-              frontMatter[mapping.name] = property.rich_text.map((rt: any) => rt.plain_text).join("");
-            }
-            break;
-          case "select":
-            if (property.select) {
-              frontMatter[mapping.name] = property.select.name;
-            }
-            break;
-          case "multi_select":
-            if (property.multi_select.length > 0) {
-              frontMatter[mapping.name] = property.multi_select.map((ms: any) => ms.name);
-            }
-            break;
-          case "date":
-            if (property.date) {
-              frontMatter[mapping.name] = property.date.start;
-            }
-            break;
-          case "status":
-            if (property.status) {
-              frontMatter[mapping.name] = property.status.name;
-              
-              // Set draft status based on Status property
-              if (property.status.name === "Published") {
-                frontMatter.draft = false;
+        try {
+          switch (property.type) {
+            case "title":
+              // Title is already handled above
+              break;
+            case "rich_text":
+              if (property.rich_text.length > 0) {
+                frontMatterObj[mapping.name] = property.rich_text.map((rt: any) => rt.plain_text).join("");
               }
-            }
-            break;
-          case "people":
-            if (property.people.length > 0) {
-              frontMatter[mapping.name] = property.people.map((p: any) => p.name || "Unknown");
-              // Also add authors for Hugo's built-in SEO
-              frontMatter.authors = property.people.map((p: any) => p.name || "Unknown");
-            }
-            break;
-          // Add more property types as needed
+              break;
+            case "select":
+              if (property.select) {
+                frontMatterObj[mapping.name] = property.select.name;
+              }
+              break;
+            case "multi_select":
+              if (property.multi_select.length > 0) {
+                frontMatterObj[mapping.name] = property.multi_select.map((ms: any) => ms.name);
+              }
+              break;
+            case "date":
+              if (property.date) {
+                frontMatterObj[mapping.name] = property.date.start;
+              }
+              break;
+            case "status":
+              if (property.status) {
+                frontMatterObj[mapping.name] = property.status.name;
+                
+                // Set draft status based on Status property
+                if (property.status.name === "Published") {
+                  frontMatterObj.draft = false;
+                }
+              }
+              break;
+            case "people":
+              if (property.people.length > 0) {
+                frontMatterObj[mapping.name] = property.people.map((p: any) => p.name || "Unknown");
+                // Also add authors for Hugo's built-in SEO
+                frontMatterObj.authors = property.people.map((p: any) => p.name || "Unknown");
+              }
+              break;
+            case "number":
+              if (property.number !== null) {
+                frontMatterObj[mapping.name] = property.number;
+              }
+              break;
+            case "checkbox":
+              frontMatterObj[mapping.name] = property.checkbox;
+              break;
+            // Add more property types as needed
+          }
+        } catch (error) {
+          console.warn(`[Warning] Failed to process property ${key}: ${error}`);
         }
       }
     });
   }
   
   // Add Notion metadata for tracking
-  frontMatter.NOTION_METADATA = {
+  frontMatterObj.NOTION_METADATA = {
     object: page.object,
     id: page.id,
     created_time: page.created_time,
@@ -263,18 +275,16 @@ function createFrontMatter(page: PageObjectResponse, propertyMap: PropertyMap): 
   };
   
   // Record update time for tracking
-  frontMatter.UPDATE_TIME = new Date().toISOString();
-  frontMatter.last_edited_time = page.last_edited_time;
+  frontMatterObj.UPDATE_TIME = new Date().toISOString();
+  frontMatterObj.last_edited_time = page.last_edited_time;
   
-  // Prepare YAML with proper indentation for complex objects
-  return Object.entries(frontMatter)
-    .map(([key, value]) => {
-      if (typeof value === 'object') {
-        return `${key}:\n  ${JSON.stringify(value, null, 2).replace(/\n/g, '\n  ')}`;
-      }
-      return `${key}: ${JSON.stringify(value)}`;
-    })
-    .join('\n');
+  // Convert to YAML
+  try {
+    return YAML.stringify(frontMatterObj);
+  } catch (error) {
+    console.error(`[Error] Failed to generate YAML: ${error}`);
+    return `title: "${getPageTitle(page)}"\nid: "${page.id}"\n`;
+  }
 }
 
 /**
