@@ -57,14 +57,19 @@ export interface RenderResult {
   title: string;
   
   /**
-   * The description or summary of the page (if available)
+   * The summary of the page (if available)
    */
-  description?: string;
+  summary?: string;
   
   /**
    * Bundle path information
    */
   bundlePath: BundlePath;
+  
+  /**
+   * Cover image path (if available)
+   */
+  coverImagePath?: string;
 }
 
 /**

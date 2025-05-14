@@ -71,8 +71,8 @@ async function main() {
     "Publish Date": { name: "date", type: "date" },
     "Series": { name: "series", type: "select" },    // Added series mapping
     "Weight": { name: "weight", type: "number" },     // Added weight for series ordering
-    "Summary": { name: "description", type: "rich_text" }, // Add summary/description mapping
-    "Description": { name: "description", type: "rich_text" } // Alternative field name
+    "Summary": { name: "summary", type: "rich_text" }, // Changed to summary
+    "Description": { name: "summary", type: "rich_text" } // Alternative field name maps to summary
   };
 
   // Find matching content file for each page to track legacy files that need cleanup
@@ -98,7 +98,7 @@ async function main() {
     console.info(`[Info] Processing page ${page.title} to ${page.targetFolder}`);
     
     try {
-      const { content, bundlePath } = await renderPage(page.page, defaultPropertyMap, { 
+      const { content, bundlePath, coverImagePath } = await renderPage(page.page, defaultPropertyMap, { 
         notion,
         targetFolder: page.targetFolder
       });
@@ -127,6 +127,11 @@ async function main() {
       
       // Write content to index file
       fs.writeFileSync(bundlePath.indexFilePath, content);
+      
+      // Log cover image info if available
+      if (coverImagePath) {
+        console.info(`[Info] Added cover image: ${coverImagePath}`);
+      }
       
       console.info(`[Info] Successfully saved ${bundlePath.indexFilePath}`);
     } catch (error) {

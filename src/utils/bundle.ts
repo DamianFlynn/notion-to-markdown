@@ -152,3 +152,43 @@ export function createBundleImagePath(bundlePath: BundlePath, imageFileName: str
   // For bundle structure, images go inside the bundle directory
   return path.join(bundlePath.bundleDirPath, imageFileName);
 }
+
+/**
+ * Interface for cover image paths
+ */
+export interface CoverImagePaths {
+  /**
+   * Absolute file path where the cover image should be saved
+   */
+  filePath: string;
+  
+  /**
+   * Relative path to be used in markdown/front matter
+   */
+  relativePath: string;
+}
+
+/**
+ * Creates a path for a cover image within a bundle
+ * 
+ * @param bundlePath - Bundle path information
+ * @param pageId - ID of the page
+ * @returns Object containing file path and relative path
+ */
+export function createCoverImagePath(bundlePath: BundlePath, pageId: string): CoverImagePaths {
+  const coverFileName = `cover-${pageId.replace(/-/g, '').substring(0, 8)}.jpg`;
+  
+  if (!bundlePath.isBundle) {
+    // For flat structure, covers go to static/images
+    return {
+      filePath: path.join('static', 'images', coverFileName),
+      relativePath: `/images/${coverFileName}`
+    };
+  }
+  
+  // For bundle structure, covers go inside the bundle directory
+  return {
+    filePath: path.join(bundlePath.bundleDirPath, coverFileName),
+    relativePath: `./${coverFileName}`
+  };
+}

@@ -111,6 +111,9 @@ export async function downloadImage(imageUrl: string, filePath: string, contentI
   try {
     console.debug(`[Debug] Downloading image from ${imageUrl} to ${filePath}`);
     
+    // Create directory if it doesn't exist
+    fs.ensureDirSync(path.dirname(filePath));
+    
     const response = await axios({
       method: 'GET',
       url: imageUrl,
@@ -131,13 +134,39 @@ export async function downloadImage(imageUrl: string, filePath: string, contentI
     });
     
     // Track this image in our minimal database
-    const relativeImagePath = `/${IMAGE_DIR}/${path.basename(filePath)}`.replace(/\\/g, '/');
+    const relativeImagePath = path.relative(process.cwd(), filePath);
     trackImage(contentId, relativeImagePath);
     
     console.info(`[Info] Downloaded image: ${path.basename(filePath)}`);
   } catch (error) {
     console.error(`[Error] Failed to download image from ${imageUrl}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Process a cover image for a Notion page
+ */
+export async function processCoverImage(
+  coverUrl: string,
+  pageId: string,
+  targetPath: string
+): Promise<string | null> {
+  if (!coverUrl) {
+    return null;
+  }
+  
+  try {
+    // Generate a content ID for tracking
+    const contentId = generateContentId(coverUrl);
+    
+    // Download the cover image
+    await downloadImage(coverUrl, targetPath, contentId);
+    
+    return path.basename(targetPath);
+  } catch (error) {
+    console.error(`[Error] Failed to process cover image: ${error}`);
+    return null;
   }
 }
 

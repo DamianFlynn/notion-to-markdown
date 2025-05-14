@@ -18,8 +18,9 @@ import { getContentFile } from "./file";
 import { withRetry, createFaultTolerantFunction } from "./utils";
 import { processImagesInMarkdown } from './imageHandler';
 import { PropertyMap, RenderOptions, RenderResult, NotionToMarkdown as N2M } from "./types";
-import { getBundlePath, BundlePath, ensureBundleDirectory } from "./utils/bundle";
+import { getBundlePath, BundlePath, ensureBundleDirectory, createCoverImagePath, CoverImagePaths } from "./utils/bundle";
 import { DEFAULT_HUGO_BUNDLE_CONFIG } from './types/hugo';
+import { downloadImage } from './imageHandler';
 
 /**
  * Configuration options for retrying failed operations
@@ -182,9 +183,14 @@ function loadCustomTransformers(n2m: NotionToMarkdown): void {
  * 
  * @param page - Notion page object
  * @param propertyMap - Map of property names to front matter fields
+ * @param coverImagePath - Optional path to cover image
  * @returns YAML front matter as a string
  */
-export function createFrontMatter(page: PageObjectResponse, propertyMap: PropertyMap): string {
+export function createFrontMatter(
+  page: PageObjectResponse, 
+  propertyMap: PropertyMap, 
+  coverImagePath?: string
+): string {
   const frontMatterObj: Record<string, any> = {
     title: getPageTitle(page),
     date: page.created_time,
@@ -192,8 +198,13 @@ export function createFrontMatter(page: PageObjectResponse, propertyMap: Propert
     draft: true,
   };
   
-  // Extract description/summary from the page if available
-  let foundDescription = false;
+  // Add cover image as featuredImage if available
+  if (coverImagePath) {
+    frontMatterObj.featuredImage = coverImagePath;
+  }
+  
+  // Extract summary from the page if available
+  let foundSummary = false;
   
   // Process each property in the page
   if (page.properties) {
@@ -209,11 +220,16 @@ export function createFrontMatter(page: PageObjectResponse, propertyMap: Propert
             case "rich_text":
               if (property.rich_text.length > 0) {
                 const textValue = property.rich_text.map((rt: any) => rt.plain_text).join("");
-                frontMatterObj[mapping.name] = textValue;
                 
-                // Note if we found a description/summary
-                if (mapping.name === "description" || mapping.name === "summary") {
-                  foundDescription = true;
+                // Use summary instead of description for rich text fields meant for summaries
+                if (mapping.name === "description") {
+                  frontMatterObj.summary = textValue;
+                  foundSummary = true;
+                } else if (mapping.name === "summary") {
+                  frontMatterObj.summary = textValue;
+                  foundSummary = true;
+                } else {
+                  frontMatterObj[mapping.name] = textValue;
                 }
               }
               break;
@@ -299,6 +315,49 @@ export function createFrontMatter(page: PageObjectResponse, propertyMap: Propert
 }
 
 /**
+ * Process cover image from a Notion page
+ * 
+ * @param page - Notion page object
+ * @param bundlePath - Bundle path information
+ * @returns Promise resolving to relative path to cover image, or null if no cover
+ */
+async function processCoverImage(
+  page: PageObjectResponse, 
+  bundlePath: BundlePath
+): Promise<string | undefined> {
+  if (!page.cover) {
+    return undefined;
+  }
+  
+  let coverUrl: string | null = null;
+  
+  if (page.cover.type === "external") {
+    coverUrl = page.cover.external.url;
+  } else if (page.cover.type === "file") {
+    coverUrl = page.cover.file.url;
+  }
+  
+  if (!coverUrl) {
+    return undefined;
+  }
+  
+  // Create path for cover image
+  const coverPaths = createCoverImagePath(bundlePath, page.id);
+  
+  try {
+    // Download the cover image
+    await downloadImage(coverUrl, coverPaths.filePath, page.id);
+    console.info(`[Info] Downloaded cover image for page ${getPageTitle(page)}`);
+    
+    // Return the relative path for front matter
+    return coverPaths.relativePath;
+  } catch (error) {
+    console.error(`[Error] Failed to download cover image: ${error}`);
+    return undefined;
+  }
+}
+
+/**
  * Render a page to markdown and front matter
  * 
  * @param page - Notion page to render
@@ -332,6 +391,12 @@ export async function renderPage(
     bundleConfig: options.hugoConfig || DEFAULT_HUGO_BUNDLE_CONFIG
   });
   
+  // Ensure bundle directory exists
+  ensureBundleDirectory(bundlePath);
+  
+  // Process cover image if present
+  const coverImagePath = await processCoverImage(page, bundlePath);
+  
   // Get the page content
   const pageBlocks = await n2m.pageToMarkdown(page.id);
   
@@ -344,9 +409,6 @@ export async function renderPage(
     console.debug(`[Debug] Page has expiry time: ${expiryTime}`);
   }
   
-  // Ensure bundle directory exists
-  ensureBundleDirectory(bundlePath);
-  
   // Process images in the markdown using the bundle structure
   const { content, downloadTasks } = await processImagesInMarkdown(
     markdown.parent, 
@@ -358,7 +420,7 @@ export async function renderPage(
   await Promise.all(downloadTasks);
   
   // Process front matter
-  const frontMatter = createFrontMatter(page, propertyMap);
+  const frontMatter = createFrontMatter(page, propertyMap, coverImagePath);
   
   // Add expiry time if found
   const frontMatterWithExpiry = expiryTime ? 
@@ -375,7 +437,9 @@ ${content}`;
   return { 
     content: output, 
     title,
-    bundlePath 
+    bundlePath,
+    summary: undefined, // Changed from description to summary
+    coverImagePath  // Include the cover image path in the result
   };
 }
 
