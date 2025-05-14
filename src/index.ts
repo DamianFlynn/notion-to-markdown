@@ -70,7 +70,9 @@ async function main() {
     "Author": { name: "Author", type: "people" },
     "Publish Date": { name: "date", type: "date" },
     "Series": { name: "series", type: "select" },    // Added series mapping
-    "Weight": { name: "weight", type: "number" }     // Added weight for series ordering
+    "Weight": { name: "weight", type: "number" },     // Added weight for series ordering
+    "Summary": { name: "description", type: "rich_text" }, // Add summary/description mapping
+    "Description": { name: "description", type: "rich_text" } // Alternative field name
   };
 
   // Find matching content file for each page to track legacy files that need cleanup

@@ -57,6 +57,11 @@ export interface RenderResult {
   title: string;
   
   /**
+   * The description or summary of the page (if available)
+   */
+  description?: string;
+  
+  /**
    * Bundle path information
    */
   bundlePath: BundlePath;

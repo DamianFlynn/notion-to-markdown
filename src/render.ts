@@ -192,6 +192,9 @@ export function createFrontMatter(page: PageObjectResponse, propertyMap: Propert
     draft: true,
   };
   
+  // Extract description/summary from the page if available
+  let foundDescription = false;
+  
   // Process each property in the page
   if (page.properties) {
     Object.entries(page.properties).forEach(([key, property]) => {
@@ -205,7 +208,13 @@ export function createFrontMatter(page: PageObjectResponse, propertyMap: Propert
               break;
             case "rich_text":
               if (property.rich_text.length > 0) {
-                frontMatterObj[mapping.name] = property.rich_text.map((rt: any) => rt.plain_text).join("");
+                const textValue = property.rich_text.map((rt: any) => rt.plain_text).join("");
+                frontMatterObj[mapping.name] = textValue;
+                
+                // Note if we found a description/summary
+                if (mapping.name === "description" || mapping.name === "summary") {
+                  foundDescription = true;
+                }
               }
               break;
             case "select":
@@ -278,13 +287,15 @@ export function createFrontMatter(page: PageObjectResponse, propertyMap: Propert
   frontMatterObj.UPDATE_TIME = new Date().toISOString();
   frontMatterObj.last_edited_time = page.last_edited_time;
   
-  // Convert to YAML
-  try {
-    return YAML.stringify(frontMatterObj);
-  } catch (error) {
-    console.error(`[Error] Failed to generate YAML: ${error}`);
-    return `title: "${getPageTitle(page)}"\nid: "${page.id}"\n`;
-  }
+  // Prepare YAML with proper indentation for complex objects
+  return Object.entries(frontMatterObj)
+    .map(([key, value]) => {
+      if (typeof value === 'object') {
+        return `${key}:\n  ${JSON.stringify(value, null, 2).replace(/\n/g, '\n  ')}`;
+      }
+      return `${key}: ${JSON.stringify(value)}`;
+    })
+    .join('\n');
 }
 
 /**
