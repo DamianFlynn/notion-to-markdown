@@ -1,13 +1,13 @@
 {
-  "name": "notion-doit",
-  "version": "0.0.1",
-  "description": "Use Notion as the CMS for your Hugo DoIt site",
+  "name": "notion-to-markdown",
+  "version": "0.0.3",
+  "description": "Convert Notion pages to Markdown for static site generators like Hugo",
   "main": "src/index.ts",
   "private": true,
   "license": "GPL-3.0-only",
-  "homepage": "https://github.com/Hugo-DoIt/Notion-DoIt",
+  "homepage": "https://github.com/DamianFlynn/notion-to-markdown",
   "bugs": {
-    "url": "https://github.com/Hugo-DoIt/Notion-DoIt/issues"
+    "url": "https://github.com/DamianFlynn/notion-to-markdown/issues"
   },
   "engines": {
     "node": ">=16",
@@ -21,9 +21,9 @@
   },
   "keywords": [
     "Notion",
+    "Markdown",
     "Hugo",
-    "theme",
-    "DoIt"
+    "Static Site Generator"
   ],
   "author": "Damian Flynn",
   "dependencies": {

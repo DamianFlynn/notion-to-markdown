@@ -4,7 +4,6 @@ const userConfig = {
     mount: {
         manual: false,
         page_url: 'https://www.notion.so/Content-Management-252a519e13ee46c5b576691e1026e7e0',
-        // page_url: 'https://www.notion.so/Notion-DoIt-b4a946f2fdf94cfebe1a425cd87582da',
         pages: [
             // {
             //     page_id: '<page_id>',
