@@ -8,7 +8,7 @@ import { UserConfig } from "./src/config"
  */
 const userConfig: UserConfig = {
     mount: {
-        manual: false,
+        manual: true,
         // Use environment variable or fallback to default
         page_url: process.env.NOTION_PAGE_URL || 'https://www.notion.so/Content-Management-252a519e13ee46c5b576691e1026e7e0',
         pages: [
@@ -21,8 +21,8 @@ const userConfig: UserConfig = {
         databases: [
             // Default configuration if no env vars are provided
             {
-                database_id: '4bb8f075358d4efeb575192baa1d62b9',
-                target_folder: '.'
+                database_id: '235a5f88-c313-46d9-84b5-9f168a1633b7',
+                target_folder: 'posts'
             }
         ],
     }

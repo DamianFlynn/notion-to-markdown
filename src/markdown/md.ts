@@ -137,25 +137,26 @@ export const equation = (expression: string) => {
 };
 
 function textRichText(text: TextRichTextItemResponse): string {
-  const annotations = text.annotations;
-  let content = text.text.content;
-  if (annotations.bold) {
+  const annotations = (text as any).annotations;
+  let content = (text as any).text.content;
+  if (annotations?.bold) {
     content = bold(content);
   }
-  if (annotations.code) {
+  if (annotations?.code) {
     content = inlineCode(content);
   }
-  if (annotations.italic) {
+  if (annotations?.italic) {
     content = italic(content);
   }
-  if (annotations.strikethrough) {
+  if (annotations?.strikethrough) {
     content = strikethrough(content);
   }
-  if (annotations.underline) {
+  if (annotations?.underline) {
     content = underline(content);
   }
-  if (text.href) {
-    content = link(content, text.href);
+  const href = (text as any).href;
+  if (href) {
+    content = link(content, href);
   }
   return content;
 }

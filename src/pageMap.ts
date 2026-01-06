@@ -55,36 +55,48 @@ export async function buildSourcePageMap(
   for (const mount of databaseMounts) {
     console.info(`[Info] Building page map for database ${mount.database_id}`);
     try {
-      for await (const pageItem of iteratePaginatedAPI(notion.databases.query, {
-        database_id: mount.database_id,
-      })) {
-        // Type guard for page objects
-        if (typeof pageItem !== 'object' || pageItem === null || (pageItem as any).object !== "page") continue;
-        
-        const pageObj = pageItem as PageObjectResponse;
-        const title = getPageTitle(pageObj);
-        
-        // Get bundle path
-        const bundlePath = getBundlePath({
-          title,
-          pageId: pageObj.id,
-          contentType: 'posts',
-          targetFolder: mount.target_folder
+      // Handle pagination - In v5 use dataSources.query instead of databases.query
+      let hasMore = true;
+      let startCursor: string | undefined = undefined;
+      
+      while (hasMore) {
+        const response = await notion.dataSources.query({
+          data_source_id: mount.database_id,
+          start_cursor: startCursor,
         });
         
-        const shouldProcess = getPageShouldBeProcessed(pageObj);
+        for (const pageItem of response.results) {
+          // Type guard for page objects
+          if (typeof pageItem !== 'object' || pageItem === null || (pageItem as any).object !== "page") continue;
+          
+          const pageObj = pageItem as PageObjectResponse;
+          const title = getPageTitle(pageObj);
+          
+          // Get bundle path
+          const bundlePath = getBundlePath({
+            title,
+            pageId: pageObj.id,
+            contentType: 'posts',
+            targetFolder: mount.target_folder
+          });
+          
+          const shouldProcess = getPageShouldBeProcessed(pageObj);
+          
+          pageMap.push({
+            id: pageObj.id,
+            title,
+            outputName: bundlePath.indexFileName,
+            lastEdited: pageObj.last_edited_time,
+            targetFolder: mount.target_folder,
+            mountType: 'database',
+            mountSource: mount.database_id,
+            page: pageObj,
+            shouldProcess
+          });
+        }
         
-        pageMap.push({
-          id: pageObj.id,
-          title,
-          outputName: bundlePath.indexFileName,
-          lastEdited: pageObj.last_edited_time,
-          targetFolder: mount.target_folder,
-          mountType: 'database',
-          mountSource: mount.database_id,
-          page: pageObj,
-          shouldProcess
-        });
+        hasMore = response.has_more;
+        startCursor = response.next_cursor ?? undefined;
       }
     } catch (error: any) {
       console.error(`[Error] Failed to process database ${mount.database_id}: ${error.message}`);
