@@ -210,7 +210,7 @@ export function createFrontMatter(
   if (page.properties) {
     Object.entries(page.properties).forEach(([key, property]) => {
       const mapping = propertyMap[key];
-      if (mapping) {
+      if (mapping && property && typeof property === 'object') {
         // Extract the property value based on its type
         try {
           switch (property.type) {

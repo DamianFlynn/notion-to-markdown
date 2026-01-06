@@ -15,7 +15,8 @@ services:
       - NOTION_PAGE_IDS=42464b089a234424a6396c013fa6cef6:.
       
       # Database configurations (comma-separated list of database_id:target_folder pairs)
-      - NOTION_DATABASE_IDS=4bb8f075358d4efeb575192baa1d62b9:.
+      # Using new Knowledge Base database - only processes pages with Format = "Social" AND Platform = "Blog"
+      - NOTION_DATABASE_IDS=${NOTION_DATABASE_IDS:-0cb08ce34a92421c8f01a3d2151ce62e:posts}
     volumes:
       # Mount content directory to the garden content directory using relative paths
       - ../garden/content:/app/content

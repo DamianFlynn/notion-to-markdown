@@ -1,14 +1,32 @@
 import { Client, isFullPage } from "@notionhq/client";
 import { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints";
+import slugify from "slugify";
 
+/**
+ * Gets the title of a Notion page
+ */
 export function getPageTitle(page: PageObjectResponse): string {
-  const title = page.properties.Name ?? page.properties.title;
-  if (title.type === "title") {
-    return title.title.map((text) => text.plain_text).join("");
+  if (!page.properties) {
+    return "Untitled";
   }
-  throw Error(
-    `page.properties.Name has type ${title.type} instead of title. The underlying Notion API might has changed, please report an issue to the author.`,
+  
+  // Look for title property
+  for (const [key, prop] of Object.entries(page.properties)) {
+    if (prop && typeof prop === 'object' && 'type' in prop && prop.type === "title" && 'title' in prop && prop.title && prop.title.length > 0) {
+      return prop.title.map((text: any) => text.plain_text).join("");
+    }
+  }
+
+  // If no title property was found, look for a Name property
+  const nameProperty = Object.values(page.properties).find(
+    prop => prop && typeof prop === 'object' && 'type' in prop && prop.type === "title"
   );
+  
+  if (nameProperty && 'title' in nameProperty && nameProperty.title?.length) {
+    return nameProperty.title.map((text: any) => text.plain_text).join("");
+  }
+  
+  return "Untitled";
 }
 
 export function getPagePublishDate(page: PageObjectResponse): string {
@@ -27,36 +45,84 @@ export function getPagePublishDate(page: PageObjectResponse): string {
 }
 
 export function getPageShouldBeProcessed(page: PageObjectResponse): boolean {
+  // Check if it's a child page first
   if (page.parent.type === "page_id") {
     console.info(
       `[Info] The post ${getPageTitle(page)} is a child page, processing.`,
     );
     return true;
   }
-  // The page is a database page, lets check its publishing status
-  const statusProperty = page.properties.Status;
-
-  // Check if statusProperty is defined
-  if (
-    statusProperty &&
-    statusProperty.type === "status" &&
-    statusProperty.status
-  ) {
-    const statusName = statusProperty.status.name;
-    if (statusName !== "Published" && statusName !== "Draft") {
-      console.info(
-        `[Info] The post ${getPageTitle(page)} is not ready to be published, skipped.`,
-      );
-      return false;
+  
+  // Default to processing the page
+  let shouldProcess = true;
+  
+  // Check for Format = "Social" and Platform = "Blog"
+  let hasCorrectFormat = false;
+  let hasCorrectPlatform = false;
+  
+  if (page.properties) {
+    for (const [key, prop] of Object.entries(page.properties)) {
+      // Skip if prop is null or undefined
+      if (!prop || typeof prop !== 'object' || !('type' in prop)) continue;
+      
+      // Check Format property - must be "Social"
+      if ((key === "Format" || key === "format")) {
+        if (prop.type === "select" && 'select' in prop) {
+          if (prop.select && prop.select.name) {
+            const format = prop.select.name;
+            if (format === "Social") {
+              hasCorrectFormat = true;
+            } else {
+              console.info(`[Info] The page ${getPageTitle(page)} has format "${format}" instead of "Social", skipped.`);
+              return false;
+            }
+          }
+        }
+      }
+      
+      // Check Platform property - must be "Blog"
+      if ((key === "Platform" || key === "platform")) {
+        if (prop.type === "select" && 'select' in prop) {
+          if (prop.select && prop.select.name) {
+            const platform = prop.select.name;
+            if (platform === "Blog") {
+              hasCorrectPlatform = true;
+            } else {
+              console.info(`[Info] The page ${getPageTitle(page)} has platform "${platform}" instead of "Blog", skipped.`);
+              return false;
+            }
+          }
+        }
+      }
+      
+      // Check for Status property
+      if (prop.type === "status" && 'status' in prop) {
+        if (prop.status && prop.status.name) {
+          const status = prop.status.name.toLowerCase();
+          
+          // Skip pages that are not ready to be published
+          if (status === "draft" || status === "in progress") {
+            console.info(`[Info] The post ${getPageTitle(page)} is not ready to be published, skipped.`);
+            shouldProcess = false;
+            break;
+          }
+        }
+      }
     }
-    return true;
   }
-
-  // If statusProperty is not defined, default to processing the page
-  console.info(
-    `[Info] The post ${getPageTitle(page)} has no Status property, processing as default.`,
-  );
-  return true;
+  
+  // Only process if it has the correct format AND platform
+  if (!hasCorrectFormat) {
+    console.info(`[Info] The page ${getPageTitle(page)} does not have Format property set to "Social", skipped.`);
+    return false;
+  }
+  
+  if (!hasCorrectPlatform) {
+    console.info(`[Info] The page ${getPageTitle(page)} does not have Platform property set to "Blog", skipped.`);
+    return false;
+  }
+  
+  return shouldProcess;
 }
 
 export async function getCoverLink(
@@ -87,12 +153,15 @@ export async function sleep(ms: number): Promise<void> {
 }
 
 export function getFileName(title: string, page_id: string): string {
-  return (
-    title.replaceAll(" ", "-").replace(/--+/g, "-") +
-    "-" +
-    page_id.replaceAll("-", "") +
-    ".md"
-  );
+  // Create a slug from the title
+  const slug = slugify(title, {
+    lower: true,
+    strict: true,
+    replacement: "-"
+  });
+  
+  // Append the page ID to ensure uniqueness
+  return `${slug}-${page_id.replace(/-/g, "")}.md`;
 }
 
 /**

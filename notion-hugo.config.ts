@@ -21,7 +21,7 @@ const userConfig: UserConfig = {
         databases: [
             // Default configuration if no env vars are provided
             {
-                database_id: '235a5f88-c313-46d9-84b5-9f168a1633b7',
+                database_id: '0cb08ce34a92421c8f01a3d2151ce62e',
                 target_folder: 'posts'
             }
         ],

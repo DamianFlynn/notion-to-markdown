@@ -66,33 +66,60 @@ export async function buildSourcePageMap(
         });
         
         for (const pageItem of response.results) {
-          // Type guard for page objects
-          if (typeof pageItem !== 'object' || pageItem === null || (pageItem as any).object !== "page") continue;
-          
-          const pageObj = pageItem as PageObjectResponse;
-          const title = getPageTitle(pageObj);
-          
-          // Get bundle path
-          const bundlePath = getBundlePath({
-            title,
-            pageId: pageObj.id,
-            contentType: 'posts',
-            targetFolder: mount.target_folder
-          });
-          
-          const shouldProcess = getPageShouldBeProcessed(pageObj);
-          
-          pageMap.push({
-            id: pageObj.id,
-            title,
-            outputName: bundlePath.indexFileName,
-            lastEdited: pageObj.last_edited_time,
-            targetFolder: mount.target_folder,
-            mountType: 'database',
-            mountSource: mount.database_id,
-            page: pageObj,
-            shouldProcess
-          });
+          try {
+            // Type guard for page objects
+            if (typeof pageItem !== 'object' || pageItem === null || (pageItem as any).object !== "page") continue;
+            
+            const pageObj = pageItem as PageObjectResponse;
+            let shouldProcess = true;
+            
+            try {
+              // Check if page should be processed FIRST before getting title and bundle path
+              shouldProcess = getPageShouldBeProcessed(pageObj);
+              if (!shouldProcess) {
+                continue;  // Skip pages that shouldn't be processed
+              }
+            } catch (filterError) {
+              const title = (pageItem as any).properties?.Title?.title?.[0]?.plain_text || 'Unknown';
+              console.warn(`[Warning] Failed to filter page "${title}": ${filterError}`);
+              console.warn(`[Debug] Stack: ${(filterError as Error).stack}`);
+              continue;
+            }
+            
+            let title: string;
+            try {
+              title = getPageTitle(pageObj);
+            } catch (titleError) {
+              const fallbackTitle = (pageItem as any).properties?.Title?.title?.[0]?.plain_text || 'Unknown';
+              console.warn(`[Warning] Failed to get title for page "${fallbackTitle}": ${titleError}`);
+              console.warn(`[Debug] Stack: ${(titleError as Error).stack}`);
+              continue;
+            }
+            
+            // Get bundle path
+            const bundlePath = getBundlePath({
+              title,
+              pageId: pageObj.id,
+              contentType: 'posts',
+              targetFolder: mount.target_folder
+            });
+            
+            pageMap.push({
+              id: pageObj.id,
+              title,
+              outputName: bundlePath.indexFileName,
+              lastEdited: pageObj.last_edited_time,
+              targetFolder: mount.target_folder,
+              mountType: 'database',
+              mountSource: mount.database_id,
+              page: pageObj,
+              shouldProcess
+            });
+          } catch (error) {
+            const title = (pageItem as any).properties?.Title?.title?.[0]?.plain_text || 'Unknown';
+            console.warn(`[Warning] Failed to process page "${title}": ${error}`);
+            continue;
+          }
         }
         
         hasMore = response.has_more;
