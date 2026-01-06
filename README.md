@@ -1,10 +1,45 @@
 # Notion to Markdown
 
+[![Docker Build](https://github.com/DamianFlynn/notion-to-markdown/actions/workflows/docker-image.yml/badge.svg)](https://github.com/DamianFlynn/notion-to-markdown/actions/workflows/docker-image.yml)
+[![Notion API](https://img.shields.io/badge/Notion%20API-v5.6.0-000000?logo=notion)](https://developers.notion.com/)
+[![Node.js](https://img.shields.io/badge/Node.js-18-339933?logo=node.js)](https://nodejs.org/)
+
 Convert Notion pages and databases to Markdown files for use with static site generators like Hugo.
 
 ## Overview
 
-Notion to Markdown is a utility that connects to the Notion API, fetches pages and databases, and converts them to Markdown files with appropriate front matter. It's particularly useful for integrating Notion as a content management system for static site generators.
+Notion to Markdown is a utility that connects to the Notion API v5, fetches pages and databases, and converts them to Markdown files with appropriate front matter. It's particularly useful for integrating Notion as a content management system for static site generators.
+
+**🚀 Production Usage**: This tool powers the automated content sync for [damianflynn.com](https://damianflynn.github.io), running every 6 hours via GitHub Actions.
+
+## Related Projects
+
+This tool is part of a complete blog automation pipeline:
+
+| Repository | Purpose | Status |
+|-----------|---------|--------|
+| **[garden](https://github.com/DamianFlynn/garden)** | Content repository using this tool for Notion sync | [![Sync](https://github.com/DamianFlynn/garden/actions/workflows/sync-notion-content.yaml/badge.svg)](https://github.com/DamianFlynn/garden/actions/workflows/sync-notion-content.yaml) |
+| **[damianflynn.github.io](https://github.com/DamianFlynn/damianflynn.github.io)** | Blog site deployed from synced content | [Live Site](https://damianflynn.github.io) |
+| **[hugo-haptic-theme](https://github.com/DamianFlynn/hugo-haptic-theme)** | Hugo theme used for rendering | [Theme Docs](https://github.com/DamianFlynn/hugo-haptic-theme#readme) |
+
+## Quick Start
+
+### Using Docker (Recommended)
+
+```bash
+docker pull ghcr.io/damianflynn/notion-to-markdown:latest
+
+docker run --rm \
+  -e NOTION_TOKEN="your-notion-token" \
+  -e NOTION_DATABASE_IDS="database-id:posts" \
+  -v "$(pwd)/content:/app/content" \
+  -v "$(pwd)/static:/app/static" \
+  ghcr.io/damianflynn/notion-to-markdown:latest
+```
+
+### GitHub Actions Integration
+
+See [garden/.github/workflows/sync-notion-content.yaml](https://github.com/DamianFlynn/garden/blob/main/.github/workflows/sync-notion-content.yaml) for a complete example of automated syncing.
 
 ## Features
 
