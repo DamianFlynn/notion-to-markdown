@@ -12,7 +12,7 @@ services:
       - NOTION_PAGE_URL=https://www.notion.so/Content-Management-252a519e13ee46c5b576691e1026e7e0
       
       # Page configurations (comma-separated list of page_id:target_folder pairs)
-      - NOTION_PAGE_IDS=42464b089a234424a6396c013fa6cef6:about-me,8aa8af305bbb44cfa107115619357357:privacy,8e68f651a2c047ad954cd3cb9e45f449:disclaimer
+      - NOTION_PAGE_IDS=42464b089a234424a6396c013fa6cef6:.,8aa8af305bbb44cfa107115619357357:.,8e68f651a2c047ad954cd3cb9e45f449:.
       
       # Database configurations (comma-separated list of database_id:target_folder pairs)
       # Using new Knowledge Base database - only processes pages with Format = "Social" AND Platform = "Blog"

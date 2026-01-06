@@ -15,15 +15,15 @@ const userConfig: UserConfig = {
             // Default configuration if no env vars are provided
             {
                 page_id: '42464b089a234424a6396c013fa6cef6',
-                target_folder: 'about-me'
+                target_folder: '.'
             },
             {
                 page_id: '8aa8af305bbb44cfa107115619357357',
-                target_folder: 'privacy'
+                target_folder: '.'
             },
             {
                 page_id: '8e68f651a2c047ad954cd3cb9e45f449',
-                target_folder: 'disclaimer'
+                target_folder: '.'
             }
         ],
         databases: [
