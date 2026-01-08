@@ -175,6 +175,18 @@ function loadCustomTransformers(n2m: NotionToMarkdown): void {
     return `> ${emoji} ${content}\n`;
   });
   
+  // Custom transformer for column_list - renders as transparent container
+  n2m.setCustomTransformer("column_list", (block: MdBlock) => {
+    // column_list itself doesn't render - its children (columns) do the work
+    return "";
+  });
+  
+  // Custom transformer for column - renders as transparent container
+  n2m.setCustomTransformer("column", (block: MdBlock) => {
+    // column itself doesn't render - its children (actual content) render normally
+    return "";
+  });
+  
   // Add more custom transformers as needed
 }
 

@@ -177,8 +177,15 @@ export class NotionToMarkdown implements N2MInterface {
       // Process children if any
       if (block.children && block.children.length > 0) {
         const childrenMarkdown = this.toMarkdownString(block.children).parent;
-        // Apply indentation for nested content
-        markdown += childrenMarkdown.split("\n").map(line => `  ${line}`).join("\n");
+        
+        // Don't indent children for column_list and column blocks 
+        // as they should render as regular markdown, not nested
+        if (block.type === 'column_list' || block.type === 'column') {
+          markdown += childrenMarkdown;
+        } else {
+          // Apply indentation for truly nested content (like lists, toggles, etc.)
+          markdown += childrenMarkdown.split("\n").map(line => line ? `  ${line}` : line).join("\n");
+        }
       }
     }
     
