@@ -266,9 +266,15 @@ export function createFrontMatter(
               break;
             case "people":
               if (property.people.length > 0) {
-                frontMatterObj[mapping.name] = property.people.map((p: any) => p.name || "Unknown");
-                // Also add authors for Hugo's built-in SEO
-                frontMatterObj.authors = property.people.map((p: any) => p.name || "Unknown");
+                const authorNames = property.people.map((p: any) => p.name || "Unknown");
+                // Set Author as string (first author) for SEO templates
+                if (mapping.name === "Author" || mapping.name === "author") {
+                  frontMatterObj[mapping.name] = authorNames[0];
+                } else {
+                  frontMatterObj[mapping.name] = authorNames;
+                }
+                // Also add authors array for Hugo's built-in SEO
+                frontMatterObj.authors = authorNames;
               }
               break;
             case "number":
