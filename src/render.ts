@@ -163,16 +163,16 @@ function loadCustomTransformers(n2m: NotionToMarkdown): void {
       ? block.callout.rich_text.map((richText: any) => richText.plain_text).join("")
       : "";
       
-    // Convert callouts with warning/info emojis to admonitions
-    if (emoji === "⚠️" || emoji === "💡" || emoji === "ℹ️") {
-      let type = "note";
-      if (emoji === "⚠️") type = "warning";
-      if (emoji === "💡") type = "tip";
-      
-      return `\n> [!${type}] ${emoji} \n> ${content}\n`;
-    }
+    // Map emoji to callout type
+    let type = "info";
+    if (emoji === "⚠️" || emoji === "⚠") type = "warning";
+    if (emoji === "💡") type = "tip";
+    if (emoji === "ℹ️" || emoji === "ℹ") type = "info";
+    if (emoji === "📝") type = "note";
+    if (emoji === "❌" || emoji === "🚫") type = "danger";
     
-    return `> ${emoji} ${content}\n`;
+    // Use Hugo shortcode syntax
+    return `\n{{< callout type="${type}" emoji="${emoji}" >}}\n${content}\n{{< /callout >}}\n`;
   });
   
   // Custom transformer for column_list - renders as transparent container
