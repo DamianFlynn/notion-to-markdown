@@ -252,10 +252,16 @@ export function createFrontMatter(
               if (property.status) {
                 frontMatterObj[mapping.name] = property.status.name;
                 
-                // Set draft status based on Status property
-                if (property.status.name === "Published") {
+                // Set draft status based on Notion Status property
+                // Draft = true for "Draft" and "In Progress"
+                // Draft = false for "Ready" and "Published"
+                const status = property.status.name.toLowerCase();
+                if (status === "ready" || status === "published") {
                   frontMatterObj.draft = false;
+                } else if (status === "draft" || status === "in progress" || status === "refining") {
+                  frontMatterObj.draft = true;
                 }
+                // For "To-do" or other statuses, keep default draft: true
               }
               break;
             case "people":

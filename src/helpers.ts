@@ -94,20 +94,6 @@ export function getPageShouldBeProcessed(page: PageObjectResponse): boolean {
           }
         }
       }
-      
-      // Check for Status property
-      if (prop.type === "status" && 'status' in prop) {
-        if (prop.status && prop.status.name) {
-          const status = prop.status.name.toLowerCase();
-          
-          // Skip pages that are not ready to be published
-          if (status === "draft" || status === "in progress") {
-            console.info(`[Info] The post ${getPageTitle(page)} is not ready to be published, skipped.`);
-            shouldProcess = false;
-            break;
-          }
-        }
-      }
     }
   }
   
