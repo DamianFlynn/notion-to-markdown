@@ -28,7 +28,7 @@
   "author": "Damian Flynn",
   "dependencies": {
     "@notionhq/client": "^5.6.0",
-    "axios": "^1.6.0",
+    "axios": "^1.14.0",
     "dotenv": "^17.2.3",
     "front-matter": "^4.0.2",
     "fs-extra": "^11.3.0",
