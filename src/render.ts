@@ -207,7 +207,8 @@ export function createFrontMatter(
     title: getPageTitle(page),
     date: page.created_time,
     lastmod: page.last_edited_time,
-    draft: true,
+    // Database pages default draft until Status says otherwise; standalone pages publish by default
+    draft: page.parent.type === 'database_id',
   };
   
   // Add cover image as featuredImage if available
