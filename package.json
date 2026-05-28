@@ -31,7 +31,7 @@
     "axios": "^1.6.0",
     "dotenv": "^17.2.3",
     "front-matter": "^4.0.2",
-    "fs-extra": "^11.3.0",
+    "fs-extra": "^11.3.4",
     "markdown-table": "^3.0.4",
     "slugify": "^1.6.6",
     "yaml": "^2.7.1"
