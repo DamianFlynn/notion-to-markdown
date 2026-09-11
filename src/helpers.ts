@@ -52,63 +52,38 @@ export function getPageShouldBeProcessed(page: PageObjectResponse): boolean {
     );
     return true;
   }
-  
-  // Default to processing the page
-  let shouldProcess = true;
-  
-  // Check for Format = "Social" and Platform = "Blog"
-  let hasCorrectFormat = false;
-  let hasCorrectPlatform = false;
-  
+
+  // For database entries, require Status = "Published"
   if (page.properties) {
     for (const [key, prop] of Object.entries(page.properties)) {
-      // Skip if prop is null or undefined
       if (!prop || typeof prop !== 'object' || !('type' in prop)) continue;
-      
-      // Check Format property - must be "Social"
-      if ((key === "Format" || key === "format")) {
-        if (prop.type === "select" && 'select' in prop) {
-          if (prop.select && prop.select.name) {
-            const format = prop.select.name;
-            if (format === "Social") {
-              hasCorrectFormat = true;
-            } else {
-              console.info(`[Info] The page ${getPageTitle(page)} has format "${format}" instead of "Social", skipped.`);
-              return false;
-            }
+
+      if (key === "Status" || key === "status") {
+        if (prop.type === "status" && 'status' in prop) {
+          const statusName = (prop as any).status?.name;
+          if (statusName === "Published") {
+            return true;
+          } else {
+            console.info(`[Info] The page ${getPageTitle(page)} has status "${statusName}" instead of "Published", skipped.`);
+            return false;
           }
         }
-      }
-      
-      // Check Platform property - must be "Blog"
-      if ((key === "Platform" || key === "platform")) {
+        // Handle select-type Status field as well
         if (prop.type === "select" && 'select' in prop) {
-          if (prop.select && prop.select.name) {
-            const platform = prop.select.name;
-            if (platform === "Blog") {
-              hasCorrectPlatform = true;
-            } else {
-              console.info(`[Info] The page ${getPageTitle(page)} has platform "${platform}" instead of "Blog", skipped.`);
-              return false;
-            }
+          const statusName = (prop as any).select?.name;
+          if (statusName === "Published") {
+            return true;
+          } else {
+            console.info(`[Info] The page ${getPageTitle(page)} has status "${statusName}" instead of "Published", skipped.`);
+            return false;
           }
         }
       }
     }
   }
-  
-  // Only process if it has the correct format AND platform
-  if (!hasCorrectFormat) {
-    console.info(`[Info] The page ${getPageTitle(page)} does not have Format property set to "Social", skipped.`);
-    return false;
-  }
-  
-  if (!hasCorrectPlatform) {
-    console.info(`[Info] The page ${getPageTitle(page)} does not have Platform property set to "Blog", skipped.`);
-    return false;
-  }
-  
-  return shouldProcess;
+
+  console.info(`[Info] The page ${getPageTitle(page)} has no Status property, skipped.`);
+  return false;
 }
 
 export async function getCoverLink(
